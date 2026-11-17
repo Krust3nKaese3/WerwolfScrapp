@@ -1,26 +1,26 @@
-# Werwolf
+# WerwolfScrapp
 
-Die Werwölfe von Düsterwald **ohne Erzähler**, auf **einem** Handy im Hochformat. Die Runde gibt das Handy weiter. Beliebig viele Mitspieler ab 4.
+Die Werwölfe von Düsterwald **ohne Erzähler**, auf **einem** Handy im Hochformat. Die Runde gibt das Handy weiter. Beliebig viele Mitspieler ab 4. In der OpenScrapp heißt der Titel weiter **Werwolf**.
 
-## In EveryApp hinzufügen
+## In OpenScr hinzufügen
 
-EveryApp lädt diese Mini-App vom öffentlichen Branch `main`.
+OpenScr lädt diese OpenScrapp vom öffentlichen Branch `main`.
 
-1. EveryApp öffnen und die App hinzufügen.
+1. OpenScr öffnen und die OpenScrapp hinzufügen.
 2. Diese Adresse einfügen:
 
 ```
-https://github.com/Krust3nKaese3/evryWerwolf
+https://github.com/Krust3nKaese3/WerwolfScrapp
 ```
 
-Dieselbe Adresse funktioniert als QR-Code im Scanner von EveryApp. Add-Links:
+Dieselbe Adresse funktioniert als QR-Code im Scanner von OpenScr. Add-Links:
 
-- EveryApp: `everyapp://add?url=https%3A%2F%2Fgithub.com%2FKrust3nKaese3%2FevryWerwolf`
-- Dev-Client: `exp+everyapp://add?url=https%3A%2F%2Fgithub.com%2FKrust3nKaese3%2FevryWerwolf`
+- OpenScr: `openscr://add?url=https%3A%2F%2Fgithub.com%2FKrust3nKaese3%2FWerwolfScrapp`
+- Dev-Client: `exp+openscr://add?url=https%3A%2F%2Fgithub.com%2FKrust3nKaese3%2FWerwolfScrapp`
 
-3. Die Berechtigung **storage** bestätigen. Sie speichert Namen und den laufenden Spielstand. Der `localStorage` der WebView übersteht das vollständige Schließen von EveryApp nicht, `EveryAppBridge.storage` schon.
+3. Die Berechtigung **storage** bestätigen. Sie speichert Namen und den laufenden Spielstand. Der `localStorage` der WebView übersteht das vollständige Schließen von OpenScr nicht, `OpenScrBridge.storage` schon. Fehlt `OpenScrBridge`, gilt `EveryAppBridge.storage`.
 
-Nach einem Push die Mini-App in EveryApp mit ⟳ aktualisieren.
+Nach einem Push die OpenScrapp in OpenScr mit ⟳ aktualisieren.
 
 ## Ablauf
 
@@ -192,7 +192,8 @@ Gegenüber `roh`:
 ## Aufbau
 
 ```
-evryWerwolf/
+WerwolfScrapp/
+├── openscr.json
 ├── everyapp.json
 ├── index.html
 ├── styles.css
@@ -201,6 +202,8 @@ evryWerwolf/
 ├── test/logic.test.js
 └── README.md
 ```
+
+`openscr.json` ist das Manifest. `everyapp.json` hat denselben Inhalt und bleibt, damit ältere installierte Builds die OpenScrapp weiter laden. Der Anzeigename darin ist **Werwolf**.
 
 `node test/logic.test.js` prüft die Spiellogik.
 

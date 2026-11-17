@@ -23,7 +23,9 @@
   }
 
   function bridgeStorage() {
-    var api = window.EveryAppBridge && window.EveryAppBridge.storage;
+    // OpenScr stellt OpenScrBridge. Ältere Builds haben nur EveryAppBridge.
+    var bridge = window.OpenScrBridge || window.EveryAppBridge;
+    var api = bridge && bridge.storage;
     if (!api || typeof api.get !== 'function' || typeof api.set !== 'function' || typeof api.remove !== 'function') return null;
     return api;
   }
@@ -307,8 +309,8 @@
       hero('🌙', 'Nacht') +
       '<div class="stack">' +
       '<p class="lead">Namen nacheinander eingeben, im Uhrzeigersinn. Diese Reihenfolge ist die Sitzordnung.</p>' +
-      (bridgeStorage() ? '<p class="hint">Namen und ein laufendes Spiel bleiben in EveryApp gespeichert, auch nach dem Schließen.</p>'
-        : '<p class="hint">Im Browser bleibt der Stand in diesem Tab. In EveryApp übersteht er das Schließen der App.</p>') +
+      (bridgeStorage() ? '<p class="hint">Namen und ein laufendes Spiel bleiben in OpenScr gespeichert, auch nach dem Schließen.</p>'
+        : '<p class="hint">Im Browser bleibt der Stand in diesem Tab. In OpenScr übersteht er das Schließen der App.</p>') +
       errorHtml() +
       '<form id="name-form" class="stack"><input id="name-input" type="text" maxlength="16" autocomplete="off" placeholder="Name" aria-label="Name">' +
       '<button class="btn" type="submit">Name hinzufügen</button></form>' +
