@@ -96,8 +96,11 @@ function playNarrator(state, decide) {
 test('Aufrufreihenfolge ist fest und dokumentiert', function () {
   assert.deepStrictEqual(W.NARRATOR_CALL_ORDER, [
     'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'werwolf',
-    'hexe', 'schaufel', 'jaeger', 'russe', 'politiker', 'dorfbewohner'
+    'hexe', 'schaufel'
   ]);
+  ['jaeger', 'russe', 'politiker', 'dorfbewohner'].forEach(function (role) {
+    assert.strictEqual(W.NARRATOR_CALL_ORDER.indexOf(role), -1, role);
+  });
   assert.strictEqual(W.narratorWakeText('seherin'), 'Seherin, wach auf.');
   assert.strictEqual(W.narratorWakeText('nutte'), 'Gastgeberin, wach auf.');
   assert.strictEqual(W.narratorWakeText('werwolf'), 'Werwolf, wach auf.');
@@ -153,7 +156,7 @@ test('Alle möglichen Karten werden gerufen, auch aussortierte und tote', functi
   const script = W.narratorScript(state);
   const roles = script.map(function (row) { return row.role; });
   assert.deepStrictEqual(roles, [
-    'seherin', 'seherin', 'werwolf', 'werwolf', 'hexe', 'dorfbewohner', 'dorfbewohner'
+    'seherin', 'seherin', 'werwolf', 'werwolf', 'hexe'
   ]);
   const byKey = {};
   script.forEach(function (row) { byKey[row.role + ':' + row.slot] = row; });
@@ -169,8 +172,7 @@ test('Alle möglichen Karten werden gerufen, auch aussortierte und tote', functi
   assert.strictEqual(byKey['hexe:0'].quiet, true);
   assert.strictEqual(byKey['hexe:0'].reason, 'dead');
   assert.strictEqual(byKey['hexe:0'].playerId, 2);
-  assert.strictEqual(byKey['dorfbewohner:0'].quiet, false);
-  assert.strictEqual(byKey['dorfbewohner:1'].reason, 'discarded');
+  assert.ok(!script.some(function (row) { return row.role === 'dorfbewohner'; }));
   script.forEach(function (row) { assert.strictEqual(row.wake, W.roleName(row.role) + ', wach auf.'); });
 
   W.send(state, { type: 'narrator-begin' });
@@ -201,10 +203,6 @@ test('Alle möglichen Karten werden gerufen, auch aussortierte und tote', functi
   assert.strictEqual(state.narratorQuiet, true);
   assert.strictEqual(state.heals.length, 0);
   assert.strictEqual(state.poisons.length, 0);
-  W.send(state, { type: 'ack' });
-  assert.strictEqual(W.view(state).prompt.kind, 'sleep');
-  W.send(state, { type: 'ack' });
-  assert.strictEqual(state.step, 'call');
   W.send(state, { type: 'ack' });
   assert.strictEqual(state.screen, 'announce');
   assert.strictEqual(W.playerById(state, 4).alive, false);
@@ -368,7 +366,7 @@ test('Mitten in der Nacht wechseln, ohne Stand zu verlieren oder doppelt zu hand
   assert.strictEqual(state.step, 'sheet');
   const script = W.narratorScript(state);
   assert.deepStrictEqual(script.map(function (row) { return row.role; }), [
-    'seherin', 'seherin', 'werwolf', 'dorfbewohner', 'dorfbewohner'
+    'seherin', 'seherin', 'werwolf'
   ]);
   const wolfCall = script.filter(function (row) { return row.role === 'werwolf'; })[0];
   assert.strictEqual(wolfCall.quiet, true);
@@ -376,7 +374,8 @@ test('Mitten in der Nacht wechseln, ohne Stand zu verlieren oder doppelt zu hand
   assert.strictEqual(script.filter(function (row) { return row.reason === 'discarded'; }).length, 1);
   W.send(state, { type: 'ack' });
   let guard = 0;
-  while (state.screen === 'night' && state.narratorCalls[state.narratorIndex].role !== 'dorfbewohner') {
+  while (state.screen === 'night' && !(state.narratorCalls[state.narratorIndex]
+    && state.narratorCalls[state.narratorIndex].role === 'werwolf' && state.step === 'call')) {
     const view = W.view(state);
     if (view.step === 'call' || view.step === 'sheet') W.send(state, { type: 'ack' });
     else if (view.prompt && view.prompt.kind === 'seer') W.send(state, { type: 'skip' });
@@ -707,6 +706,109 @@ test('Ohne Erzählermodus bleibt die Hexe blind, auch wenn mitten in der Nacht u
   assert.strictEqual(W.playerById(told, 4).healsLeft, 0);
   assert.deepStrictEqual(told.heals.map(Number), [2]);
   assert.strictEqual(W.view(told).prompt.kind, 'poison');
+});
+
+test('Rollen ohne Nachtaktion fehlen, auch tot oder aussortiert', function () {
+  const counts = blankCounts();
+  counts.jaeger = 1;
+  counts.russe = 1;
+  counts.politiker = 1;
+  counts.dorfbewohner = 2;
+  counts.werwolf = 2;
+  counts.schaufel = 1;
+  const dealt = blankCounts();
+  dealt.werwolf = 1;
+  dealt.jaeger = 1;
+  dealt.russe = 1;
+  dealt.politiker = 1;
+  dealt.dorfbewohner = 1;
+  const state = make(['Wolf', 'Jaeger', 'Russe', 'Pol', 'Dorf'], dealt, { selfTell: true, rolePool: false });
+  state.counts = counts;
+  state.rolePool = true;
+  state.wolfMax = 2;
+  setRoles(state, ['werwolf', 'jaeger', 'russe', 'politiker', 'dorfbewohner']);
+  W.playerById(state, 2).alive = false;
+  W.beginNight(state);
+  const roles = W.narratorScript(state).map(function (row) { return row.role; });
+  assert.deepStrictEqual(roles, ['werwolf', 'werwolf', 'schaufel']);
+  assert.strictEqual(W.narratorScript(state)[1].reason, 'discarded');
+  assert.strictEqual(W.narratorScript(state)[2].reason, 'discarded');
+});
+
+test('Nachahmerin spielt die kopierte Nachtaktion in ihrem Aufruf', function () {
+  const counts = blankCounts();
+  counts.nachahmerin = 1;
+  counts.jaeger = 1;
+  counts.seherin = 1;
+  counts.werwolf = 1;
+  const state = make(['Nach', 'Jaeger', 'Seer', 'Wolf'], counts, { selfTell: true, rolePool: false });
+  setRoles(state, ['nachahmerin', 'jaeger', 'seherin', 'werwolf']);
+  W.beginNight(state);
+  const roles = W.narratorScript(state).map(function (row) { return row.role; });
+  assert.deepStrictEqual(roles, ['nachahmerin', 'seherin', 'werwolf']);
+  W.send(state, { type: 'ack' });
+  assert.strictEqual(W.view(state).prompt.kind, 'copy');
+  W.send(state, { type: 'confirm', id: 2 });
+  assert.strictEqual(W.view(state).prompt.kind, 'kill');
+  assert.strictEqual(W.view(state).prompt.attack, 'jaeger');
+  W.send(state, { type: 'confirm', id: 4 });
+  assert.strictEqual(state.extraAttacks.length, 1);
+  assert.strictEqual(state.extraAttacks[0].houseId, 4);
+  assert.strictEqual(W.playerById(state, 1).role, 'nachahmerin');
+  assert.strictEqual(W.playerById(state, 1).nachLeft, 0);
+});
+
+test('Alter narratorCalls-Stand überspringt Rollen ohne Nachtaktion', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.hexe = 1;
+  counts.dorfbewohner = 2;
+  const state = make(['Wolf', 'Hexe', 'Anna', 'Bert'], counts, { selfTell: true, rolePool: false });
+  setRoles(state, ['werwolf', 'hexe', 'dorfbewohner', 'dorfbewohner']);
+  state.screen = 'night';
+  state.step = 'show';
+  state.selfTell = true;
+  state.nightNumber = 1;
+  state.nightDone = [];
+  state.narratorIndex = 2;
+  state.activeId = 2;
+  state.actorId = 2;
+  state.prompts = [{ kind: 'heal', source: 'role', target: 'house', healsLeft: 2 }];
+  state.promptIndex = 0;
+  state.narratorCalls = [
+    { role: 'jaeger', playerId: null, slot: 0 },
+    { role: 'werwolf', playerId: 1, slot: 0 },
+    { role: 'hexe', playerId: 2, slot: 0 },
+    { role: 'dorfbewohner', playerId: 3, slot: 0 },
+    { role: 'dorfbewohner', playerId: 4, slot: 1 }
+  ];
+  W.adoptSaved(state);
+  assert.deepStrictEqual(state.narratorCalls.map(function (call) { return call.role; }), ['werwolf', 'hexe']);
+  assert.strictEqual(state.narratorIndex, 1);
+  assert.strictEqual(state.step, 'show');
+  assert.strictEqual(W.view(state).prompt.kind, 'heal');
+  const stuck = make(['Wolf', 'Hexe', 'Anna', 'Bert'], counts, { selfTell: true, rolePool: false });
+  setRoles(stuck, ['werwolf', 'hexe', 'dorfbewohner', 'dorfbewohner']);
+  stuck.screen = 'night';
+  stuck.step = 'call';
+  stuck.selfTell = true;
+  stuck.nightNumber = 1;
+  stuck.nightDone = [1, 2];
+  stuck.wolfVotes = { 1: 3 };
+  stuck.narratorIndex = 2;
+  stuck.narratorQuiet = true;
+  stuck.narratorCalls = [
+    { role: 'werwolf', playerId: 1, slot: 0 },
+    { role: 'hexe', playerId: 2, slot: 0 },
+    { role: 'jaeger', playerId: null, slot: 0 },
+    { role: 'russe', playerId: null, slot: 0 },
+    { role: 'politiker', playerId: null, slot: 0 },
+    { role: 'dorfbewohner', playerId: 3, slot: 0 }
+  ];
+  W.adoptSaved(stuck);
+  assert.notStrictEqual(stuck.screen, 'night');
+  assert.strictEqual(W.playerById(stuck, 3).alive, false);
+  assert.strictEqual(stuck.error || '', '');
 });
 
 test('Schalter merkt sich nur ein zusätzliches Feld, alte Schlüssel bleiben', function () {

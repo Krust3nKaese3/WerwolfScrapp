@@ -33,10 +33,12 @@
      Tot oder nicht im Spiel bleibt der Aufruf stumm und zeigt kein Opfer.
      Außerhalb des Erzählermodus heilt sie weiter blind. Der Modus gilt zum Zeitpunkt ihres Aufrufs.
      Schaufel holt nur Personen zurück, die schon als tot gelten.
-     Jäger, Russe, Politiker und Dorfbewohner haben nachts keine eigene Aktion und werden trotzdem gerufen. */
+     Jäger, Russe, Politiker und Dorfbewohner haben nachts keine eigene Aktion und werden nicht gerufen.
+     Der Jäger schießt erst, wenn er stirbt. Der Russe duelliert am Tag.
+     Kopiert die Nachahmerin eine Rolle mit Nachtaktion, läuft diese Aktion in ihrem Aufruf, nicht als eigene Karte. */
   var NARRATOR_CALL_ORDER = [
     'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'werwolf',
-    'hexe', 'schaufel', 'jaeger', 'russe', 'politiker', 'dorfbewohner'
+    'hexe', 'schaufel'
   ];
 
   var CAUSE_LABEL = {
@@ -1864,8 +1866,35 @@
     return !!(p && p.alive);
   }
 
+  function settleNarratorCalls(state) {
+    if (!state || state.screen !== 'night' || !state.selfTell || !Array.isArray(state.narratorCalls)) return;
+    var index = state.narratorIndex;
+    if (!isInt(index) || index < 0) index = 0;
+    var kept = [];
+    var droppedBefore = 0;
+    var currentDropped = false;
+    var i;
+    for (i = 0; i < state.narratorCalls.length; i++) {
+      var call = state.narratorCalls[i];
+      if (call && NARRATOR_CALL_ORDER.indexOf(call.role) >= 0) kept.push(call);
+      else if (i < index) droppedBefore += 1;
+      else if (i === index) currentDropped = true;
+    }
+    if (kept.length === state.narratorCalls.length) return;
+    state.narratorCalls = kept;
+    var next = index - droppedBefore;
+    if (next < 0) next = 0;
+    if (next > kept.length) next = kept.length;
+    state.narratorIndex = next;
+    if ((state.step === 'call' || state.step === 'show') && (currentDropped || next >= kept.length)) {
+      openNarratorCall(state);
+    }
+    note(state, 'Alte Aufrufe ohne Nachtaktion übersprungen');
+  }
+
   function adoptSaved(state) {
     if (!state || !state.players) return state;
+    settleNarratorCalls(state);
     if (isInt(state.wolfMin) && isInt(state.wolfMax) && state.wolfMin > state.wolfMax) state.wolfMax = state.wolfMin;
     state.players.forEach(function (p) {
       if (p.healsLeft == null) p.healsLeft = p.healLeft ? (state.healPotions || 2) : 0;
