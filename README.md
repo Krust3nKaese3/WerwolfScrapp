@@ -38,7 +38,7 @@ Der Schalter steht auf dem Startbildschirm und ist standardmäßig **aus**. Aus 
 
 Der Erzähler trägt keinen Namen ein und bekommt keine Rolle. Zuerst geht das Handy wie immer herum: dieselbe Namensliste, und bei Quick Amor verbindet Amor beim Aufdecken. Danach behält nur der Erzähler das Handy. Er sieht eine Übersicht Name, Rolle, lebend oder tot.
 
-In der Nacht ruft die App jede Karte auf, die im Setup möglich ist, in fester Reihenfolge. Bei „Mehr Rollen als Spieler“ sind das beim Werwolf das Maximum, bei den anderen Rollen die eingestellte Anzahl. Übrige Karten und tote Rollen werden mit aufgerufen. Der Erzähler liest den Aufruftext vor, zum Beispiel „Seherin, wach auf.“ Lebt jemand mit dieser Karte, tippt der Erzähler das Ziel aus der Namensliste. Zurück vor dem Bestätigen verbraucht nichts. Bei einer aussortierten oder toten Karte steht klein „Niemand handelt.“, der Bildschirm bleibt der Aufruf, und **Weiter** wird kurz gesperrt, damit der Takt gleich bleibt. Das Sehergebnis erscheint groß, damit der Erzähler es der Seherin zeigen kann. Aufgelöst wird mit derselben Nachtlogik wie ohne Erzähler.
+In der Nacht ruft die App jede Karte auf, die im Setup möglich ist, in fester Reihenfolge. Bei „Mehr Rollen als Spieler“ sind das beim Werwolf das Maximum, bei den anderen Rollen die eingestellte Anzahl. Übrige Karten und tote Rollen werden mit aufgerufen. Der Erzähler liest den Aufruftext vor, zum Beispiel „Seherin, wach auf.“ Lebt jemand mit dieser Karte, tippt der Erzähler das Ziel aus der Namensliste. Zurück vor dem Bestätigen verbraucht nichts. Bei einer aussortierten oder toten Karte steht klein „Niemand handelt.“, der Bildschirm bleibt der Aufruf, und **Weiter** wird kurz gesperrt, damit der Takt gleich bleibt. Das Sehergebnis erscheint groß, damit der Erzähler es der Seherin zeigen kann. Die lebendige Hexe sieht nach den Wölfen groß die Namen der Wolfsopfer und heilt nur aus dieser Liste. Aufgelöst wird mit derselben Nachtlogik wie ohne Erzähler.
 
 Reihenfolge: Amor, Waschbär, Nachahmerin, Gastgeberin, Seherin, Werwolf, Hexe, Schaufel, Jäger, Russe, Politiker, Dorfbewohner. Der Waschbär kommt vor den anderen, damit ein Diebstahl noch in dieser Nacht gilt, wenn das Opfer noch nicht gehandelt hat. Jäger, Russe, Politiker, Dorfbewohner und Amor haben nachts meist nichts zu tun und werden trotzdem gerufen. Ohne Quick Amor ist die Amor-Karte in Nacht 1 die echte Verbindung, vor den Wölfen. Ab Nacht 2 bleibt der Aufruf, ohne ein zweites Paar.
 
@@ -54,7 +54,7 @@ Anzeigenamen stehen nur in `ROLE_NAMES` in `game.js`.
 | --- | --- | --- |
 | Werwolf | Wölfe | Nachts wählt das Rudel gemeinsam ein Haus. |
 | Dorfbewohner | Dorf | Keine. Tippt nachts den eigenen Namen und dann „Ich will gar nichts machen“. |
-| Hexe | Dorf | Heiltränke für das ganze Spiel, Anzahl in der Einrichtung (1 bis 8, Standard 2), plus ein Gifttrank. Sie sieht das Opfer nicht. |
+| Hexe | Dorf | Heiltränke für das ganze Spiel, Anzahl in der Einrichtung (1 bis 8, Standard 2), plus ein Gifttrank. Ohne Erzähler sieht sie das Opfer nicht. Im Erzählermodus sieht sie die Wolfsopfer und kann eines davon retten. |
 | Seherin | Dorf | Sieht nachts eine **Person**. Standard nur **Team Dorfbewohner** oder **Böse**. Der Schalter „Seherin sieht genaue Rolle“ zeigt die Rolle. |
 | Amor | Dorf | **Quick Amor** an: beim Aufdecken zwei **Personen**, sich selbst eingeschlossen. Aus: dasselbe in Nacht 1, als erste Rolle, vor den Wölfen. Aussetzen geht nicht. Danach nachts keine eigene Aktion. |
 | Jäger | Dorf | Schießt, wenn er stirbt, auf eine **Person**. |
@@ -116,7 +116,7 @@ Ausnahmen, auch als Kopie der Nachahmerin: **Seherin**, **Amor** und **Waschbär
 
 Ein nächtlicher Treffer auf ein Haus erwischt alle, die gerade darin sind: die Besitzerin, wenn sie daheim ist, plus jede Gastgeberin (oder nachgeahmte Gastgeberin), die dort schläft. Die echte Gastgeberin ist nie daheim. Ein Treffer auf ihr eigenes Haus tut ihr nichts. Ein Treffer auf das Haus, in dem sie schläft, tötet sie und den Gastgeber, falls der daheim ist.
 
-Ein Heiltrank schützt ein Haus für **diese Nacht** vor jedem Tod darin: Werwolf-Angriff, kopierter Werwolf, Gift und nächtlicher Schuss. Alle, die in dem Haus sind, bleiben am Leben. Das eigene Haus darf sie heilen, vergiften darf sie es nicht. Sie erfährt nicht, welches Haus angegriffen wird, und legt den Trank blind. Mehrere Tränke in derselben Nacht sind erlaubt, jeder auf ein anderes Haus. Übrige Tränke bleiben für spätere Nächte. Die Nacht wird erst aufgelöst, wenn alle lebenden Personen fertig sind, deshalb ist die Reihenfolge egal.
+Ein Heiltrank schützt ein Haus für **diese Nacht** vor jedem Tod darin: Werwolf-Angriff, kopierter Werwolf, Gift und nächtlicher Schuss. Alle, die in dem Haus sind, bleiben am Leben. Das eigene Haus darf sie heilen, vergiften darf sie es nicht. Ohne Erzähler erfährt sie nicht, welches Haus angegriffen wird, und legt den Trank blind. Im Erzählermodus zeigt der Aufruf nach den Wölfen die Opfer mit Namen. Sie rettet ein Opfer aus dieser Liste, der Trank schützt das Haus, in dem es diese Nacht schläft. Mehrere Opfer darf sie heilen, solange Tränke übrig sind. Gibt es kein Wolfsopfer, bleibt der Trank liegen. Ist die Hexe tot oder nicht im Spiel, bleibt der Aufruf stumm und zeigt kein Opfer. Eine nachgeahmte Hexe heilt weiter blind, weil sie vor den Wölfen handelt. Mehrere Tränke in derselben Nacht sind erlaubt, jeder auf ein anderes Haus. Übrige Tränke bleiben für spätere Nächte. Die Nacht wird erst aufgelöst, wenn alle lebenden Personen fertig sind, deshalb ist die Reihenfolge egal. Der Modus gilt zum Zeitpunkt ihres Aufrufs.
 
 Amor, die Seherin und der Waschbär treffen Personen, auch die Gastgeberin. Wo die Gastgeberin schläft, ändert den Diebstahl nicht.
 
@@ -198,7 +198,7 @@ Gegenüber `roh`:
 - **Rollenpool.** Schalter **Mehr Rollen als Spieler**, standardmäßig an. Pool darf größer sein als die Runde, Rest bleibt draußen. Werwolf hat Minimum und Maximum. Liegt das Minimum über dem Maximum, zieht das Maximum mit. Liegt das Maximum unter dem Minimum, zieht das Minimum mit. Ein Minimum über dem Maximum kommt nicht vor.
 - **Punkte.** Am Spielende bekommt jede lebende Person im Siegerteam einen Punkt. Tote Sieger bekommen keinen. Ausnahme: der Politiker gewinnt nur, wenn er gewählt wird und dabei stirbt, deshalb bekommt er den Punkt trotzdem. Bei einem Liebes-Sieg bekommen die überlebenden Liebenden den Punkt. Dieselben Namen sammeln weiter, neue Namen starten bei 0, alte Namen bleiben, auch wenn sie in der nächsten Runde fehlen. Die Liste steht in der Lobby und auf dem Endschirm, das +1 ist markiert.
 - **Ablauf.** Nacht 1 direkt nach dem Aufdecken, dann Morgen und Tag 1. Die erste Person ist an Tag 1 Bürgermeister. Die zusätzliche Drehung des Amts beginnt erst am Ende von Nacht 2. Das Duell bleibt am Tag.
-- **Hexe.** Sieht das Opfer nicht und legt Heiltränke blind. Die Anzahl ist einstellbar, 1 bis 8, Standard 2, für das ganze Spiel. In einer Nacht darf sie so viele legen, wie sie noch hat, jedes Haus nur einmal. Der Trank hält in dieser Nacht jeden Tod in dem Haus auf. Aufgelöst wird erst, wenn alle gehandelt haben.
+- **Hexe.** Ohne Erzähler sieht sie das Opfer nicht und legt Heiltränke blind. Im Erzählermodus sieht sie die Wolfsopfer und heilt eines davon. Die Anzahl ist einstellbar, 1 bis 8, Standard 2, für das ganze Spiel. In einer Nacht darf sie so viele legen, wie sie noch hat, jedes Haus nur einmal. Der Trank hält in dieser Nacht jeden Tod in dem Haus auf. Aufgelöst wird erst, wenn alle gehandelt haben.
 - **Bilder.** Jede Rolle hat ein Emoji, der Heiltrank ist ein rotes Fläschchen und der Gifttrank ein grünes, beide als SVG in der App. Leben ist ❤️, Tod ist 💀. Jeder Bildschirm hat oben ein großes Zeichen, der Text steht darunter. Keine Icon-Schrift, alles offline.
 
 ## Aufbau
@@ -229,8 +229,8 @@ Diese Punkte waren so nicht wortwörtlich vorgegeben:
 - Ab Nacht 2 wandert das Amt am Morgen zusätzlich zur Weitergabe beim Tod.
 - Wolfs-Gleichstand: im Uhrzeigersinn ab dem Bürgermeister, Abstand 0 ist er selbst.
 - Abstimmungs-Gleichstand: niemand stirbt. Zusätzlich gibt es die Stimme „Niemand“.
-- Heiltränke: 1 bis 8 pro Spiel, Standard 2, kein Nachtlimit außer der Restzahl. Jeder Trank ein anderes Haus, nur diese Nacht, gegen jeden Tod darin. Die Hexe sieht das Opfer nicht.
-- Die Hexe sieht nicht, wer in einem Haus schläft.
+- Heiltränke: 1 bis 8 pro Spiel, Standard 2, kein Nachtlimit außer der Restzahl. Jeder Trank ein anderes Haus, nur diese Nacht, gegen jeden Tod darin. Ohne Erzähler sieht die Hexe das Opfer nicht. Im Erzählermodus heilt sie die angezeigten Wolfsopfer.
+- Ohne Erzähler sieht die Hexe nicht, wer in einem Haus schläft. Im Erzählermodus sieht sie nur die Personen, die die Wölfe diese Nacht treffen würden.
 - Der Waschbär stiehlt eine Person. Die Kopie der Nachahmerin muss das auch. Gibt es keine andere lebende Person, verpufft die Kopie. Der Diebstahl beendet das Spiel nicht von selbst.
 - Kopierte Nachahmerin: nur eine weitere Vorlage, dann Schluss.
 - Liebessieg für jede zusammenhängende Gruppe, die allein übrig ist, nicht nur für ein gemischtes Paar. Reine Wölfe als Paar gewinnen als Liebespaar, nicht als Rudel.

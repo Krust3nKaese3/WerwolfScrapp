@@ -28,7 +28,10 @@
      Waschbär vor allen anderen Nachtaktionen, damit ein Diebstahl noch in dieser Nacht gilt, wenn das Opfer noch nicht dran war.
      Nachahmerin direkt danach, sie kopiert die aktuelle Rolle und setzt sie sofort ein.
      Gastgeberin, bevor die Nacht aufgelöst wird.
-     Seherin, dann jede mögliche Wolfskarte, dann die blinde Hexe.
+     Seherin, dann jede mögliche Wolfskarte, dann die Hexe.
+     Im Erzählermodus sieht die lebendige Hexe dabei die Opfer der Wölfe und kann sie heilen.
+     Tot oder nicht im Spiel bleibt der Aufruf stumm und zeigt kein Opfer.
+     Außerhalb des Erzählermodus heilt sie weiter blind. Der Modus gilt zum Zeitpunkt ihres Aufrufs.
      Schaufel holt nur Personen zurück, die schon als tot gelten.
      Jäger, Russe, Politiker und Dorfbewohner haben nachts keine eigene Aktion und werden trotzdem gerufen. */
   var NARRATOR_CALL_ORDER = [
@@ -765,24 +768,61 @@
     return { scores: grantPoints(scores, names), names: names, applied: true };
   }
 
-  function resolveWolfHouse(state) {
+  function chosenWolfHouse(state) {
     var tally = {};
     Object.keys(state.wolfVotes || {}).forEach(function (wolfId) {
       var house = Number(state.wolfVotes[wolfId]);
+      if (!house) return;
       tally[house] = (tally[house] || 0) + 1;
     });
     var houses = Object.keys(tally);
-    if (!houses.length) {
-      state.victimHouse = null;
-      return null;
-    }
+    if (!houses.length) return null;
     var max = 0;
     houses.forEach(function (h) { if (tally[h] > max) max = tally[h]; });
     var tied = houses.filter(function (h) { return tally[h] === max; }).map(Number);
-    var house = tied.length === 1 ? tied[0] : closestClockwise(state.players, state.mayorId, tied);
+    if (tied.length === 1) return tied[0];
+    return closestClockwise(state.players, state.mayorId, tied);
+  }
+
+  function resolveWolfHouse(state) {
+    var house = chosenWolfHouse(state);
     state.victimHouse = house;
-    note(state, 'Wolfsopfer Haus ' + house);
+    if (house) note(state, 'Wolfsopfer Haus ' + house);
     return house;
+  }
+
+  function wolfAttackHouses(state) {
+    var houses = [];
+    var pack = chosenWolfHouse(state);
+    if (pack) houses.push(pack);
+    (state.extraAttacks || []).forEach(function (attack) {
+      if (!attack) return;
+      if (attack.kind === 'wolf' || attack.cause === 'woelfe') houses.push(Number(attack.houseId));
+    });
+    return houses;
+  }
+
+  function sleepHouse(state, personId) {
+    personId = Number(personId);
+    if (state.hosts && state.hosts[personId] != null && state.hosts[personId] !== '') {
+      return Number(state.hosts[personId]);
+    }
+    return personId;
+  }
+
+  function wolfVictimIds(state) {
+    var wanted = {};
+    wolfAttackHouses(state).forEach(function (houseId) {
+      occupants(state, houseId).forEach(function (pid) { wanted[pid] = true; });
+    });
+    return living(state).filter(function (p) { return wanted[p.id]; }).map(function (p) { return p.id; });
+  }
+
+  function unhealedVictimIds(state, victims) {
+    return (victims || []).map(Number).filter(function (id) {
+      var house = sleepHouse(state, id);
+      return !(state.heals || []).some(function (healed) { return Number(healed) === house; });
+    });
   }
 
   function resolveBallot(state) {
@@ -1124,6 +1164,12 @@
       return;
     }
     if (state.step === 'show' && action.type === 'back') {
+      if ((state.selection || []).length) {
+        state.selection = [];
+        state.error = '';
+        note(state, 'Auswahl zurück');
+        return;
+      }
       if ((state.promptIndex || 0) > 0) {
         state.error = 'Die Aktion hat schon angefangen.';
         return;
@@ -1180,13 +1226,42 @@
     return null;
   }
 
-  function healPrompt(source, left) {
-    return { kind: 'heal', source: source, target: 'house', healsLeft: left };
+  function healPrompt(source, left, victims) {
+    var prompt = { kind: 'heal', source: source, target: 'house', healsLeft: left };
+    if (Array.isArray(victims)) {
+      prompt.reactive = true;
+      prompt.target = 'person';
+      prompt.victims = victims.map(Number);
+    }
+    return prompt;
+  }
+
+  function narratorHexCall(state) {
+    if (!state || !state.selfTell || state.screen !== 'night') return false;
+    var call = state.narratorCalls && state.narratorCalls[state.narratorIndex];
+    return !!(call && call.role === 'hexe');
+  }
+
+  function victimInfo(state, victims) {
+    var names = victims || [];
+    var open = unhealedVictimIds(state, names);
+    var text = 'Heute Nacht kein Opfer der Wölfe';
+    if (names.length && !open.length) text = 'Diese Opfer sind diese Nacht schon geschützt.';
+    else if (names.length) text = 'Die Werwölfe greifen diese Nacht an. Ein Heiltrank ist nicht mehr übrig.';
+    return { kind: 'info', victimReveal: true, victims: names.map(Number), text: text };
+  }
+
+  function reactiveWitchPrompts(state, player) {
+    var victims = wolfVictimIds(state);
+    var open = unhealedVictimIds(state, victims);
+    if (player.healsLeft > 0 && open.length) return [healPrompt('role', player.healsLeft, open)];
+    return [victimInfo(state, victims)];
   }
 
   function hexePrompts(state, player) {
     var list = [];
-    if (player.role === 'hexe' && player.healsLeft > 0) list.push(healPrompt('role', player.healsLeft));
+    if (player.role === 'hexe' && narratorHexCall(state)) list = reactiveWitchPrompts(state, player);
+    else if (player.role === 'hexe' && player.healsLeft > 0) list.push(healPrompt('role', player.healsLeft));
     if (player.role === 'hexe' && player.poisonLeft) list.push({ kind: 'poison', source: 'role', target: 'house' });
     return list;
   }
@@ -1622,15 +1697,30 @@
       return [];
     }
     if (prompt.kind === 'heal') {
-      var healHouse = chosenId(state, action);
-      if (healHouse == null) return 'Wähle ein Haus oder lass den Trank liegen.';
-      if (!livingTarget(state, healHouse)) return 'Dieses Haus gibt es nicht.';
+      var healHouse = null;
+      if (prompt.reactive) {
+        var victimId = chosenId(state, action);
+        var allowed = (prompt.victims || []).map(Number);
+        if (victimId == null || allowed.indexOf(victimId) < 0) return 'Wähle ein Opfer oder lass den Trank liegen.';
+        if (!livingTarget(state, victimId)) return 'Dieses Opfer gibt es nicht.';
+        healHouse = sleepHouse(state, victimId);
+      } else {
+        healHouse = chosenId(state, action);
+        if (healHouse == null) return 'Wähle ein Haus oder lass den Trank liegen.';
+        if (!livingTarget(state, healHouse)) return 'Dieses Haus gibt es nicht.';
+      }
+      healHouse = Number(healHouse);
       if (state.heals.some(function (id) { return Number(id) === healHouse; })) {
         return 'Dieses Haus ist diese Nacht schon geschützt.';
       }
       state.heals.push(healHouse);
       consumePotion(state, player, prompt);
       var left = prompt.source === 'role' ? player.healsLeft : (copyKit(state, player.id) || {}).healsLeft || 0;
+      if (prompt.reactive) {
+        var still = unhealedVictimIds(state, prompt.victims);
+        if (left > 0 && still.length) return [healPrompt(prompt.source, left, still)];
+        return [];
+      }
       var open = living(state).some(function (p) {
         return !state.heals.some(function (id) { return Number(id) === p.id; });
       });
@@ -2623,6 +2713,11 @@
       return living(state).filter(function (p) { return p.id !== selfId; });
     }
     if (prompt.kind === 'heal') {
+      if (prompt.reactive) {
+        var allowed = {};
+        unhealedVictimIds(state, prompt.victims).forEach(function (id) { allowed[id] = true; });
+        return living(state).filter(function (p) { return allowed[p.id]; });
+      }
       return living(state).filter(function (p) {
         return !(state.heals || []).some(function (id) { return Number(id) === p.id; });
       });

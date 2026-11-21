@@ -95,6 +95,8 @@ async function main() {
     await quietAndSeer(browser, base);
     await narratorPlaysNight(browser, base);
     await gearMidGame(browser, base);
+    await witchHealScreen(browser, base);
+    await witchRules(browser, base);
   } finally {
     await browser.close();
     await new Promise(function (resolve) { started.server.close(resolve); });
@@ -280,6 +282,121 @@ async function gearMidGame(browser, base) {
   await page.locator('#settings-close').click();
   await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
   assert.strictEqual(await page.locator('button[data-act="night-pick"]:not([disabled])').count(), 4);
+  await page.close();
+}
+
+function baseNight(extra) {
+  const state = {
+    v: 1,
+    screen: 'night',
+    step: 'show',
+    selfTell: true,
+    narratorQuiet: false,
+    narratorIndex: 0,
+    narratorCalls: [{ role: 'hexe', playerId: 4, slot: 0 }],
+    activeId: 4,
+    actorId: 4,
+    nightNumber: 1,
+    day: 0,
+    mayorId: 1,
+    players: [
+      { id: 1, name: 'Wolf', role: 'werwolf', alive: true, loverIds: [], healsLeft: 0, poisonLeft: false },
+      { id: 2, name: 'Anna', role: 'dorfbewohner', alive: true, loverIds: [], healsLeft: 0, poisonLeft: false },
+      { id: 3, name: 'Bert', role: 'dorfbewohner', alive: true, loverIds: [], healsLeft: 0, poisonLeft: false },
+      { id: 4, name: 'Hexe', role: 'hexe', alive: true, loverIds: [], healsLeft: 2, poisonLeft: true }
+    ],
+    counts: { werwolf: 1, dorfbewohner: 2, hexe: 1 },
+    prompts: [],
+    promptIndex: 0,
+    selection: [],
+    heals: [],
+    poisons: [],
+    wolfVotes: { 1: 2 },
+    extraAttacks: [],
+    hosts: {},
+    copyHexes: [],
+    nightDone: [1, 2, 3],
+    shownDead: [],
+    order: [1, 2, 3, 4],
+    log: [],
+    bonds: [],
+    seenLove: {},
+    votes: {},
+    healPotions: 2,
+    nachUses: 1,
+    config: { selfTell: true }
+  };
+  Object.keys(extra || {}).forEach(function (key) { state[key] = extra[key]; });
+  return state;
+}
+
+async function witchHealScreen(browser, base) {
+  const page = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
+  const errors = [];
+  page.on('pageerror', function (error) { errors.push(String(error)); });
+  await page.addInitScript(function (payload) {
+    localStorage.setItem('werwolf.game.v1', JSON.stringify(payload));
+  }, baseNight({
+    prompts: [{ kind: 'heal', source: 'role', target: 'person', healsLeft: 2, reactive: true, victims: [2] }]
+  }));
+  await page.goto(base);
+  await page.locator('.victim-huge').waitFor();
+  const huge = await page.locator('.victim-huge').innerText();
+  assert.strictEqual(huge, 'Anna');
+  const size = await page.locator('.victim-huge').evaluate(function (el) {
+    return parseFloat(getComputedStyle(el).fontSize);
+  });
+  assert.ok(size >= 60, String(size));
+  const choices = page.locator('#app button[data-act="select"]');
+  assert.strictEqual(await choices.count(), 1);
+  assert.ok((await choices.first().innerText()).indexOf('Anna') >= 0);
+  assert.strictEqual(await page.locator('#app').innerText().then(function (text) { return text.indexOf('Bert'); }), -1);
+  await page.getByRole('button', { name: 'Keinen Heiltrank' }).waitFor();
+  await choices.first().click();
+  await page.locator('#app .choice.selected').waitFor();
+  await page.getByRole('button', { name: 'Zurück', exact: true }).click();
+  assert.strictEqual(await page.locator('#app .choice.selected').count(), 0);
+  const afterBack = await page.evaluate(function () {
+    return JSON.parse(localStorage.getItem('werwolf.game.v1'));
+  });
+  assert.deepStrictEqual(afterBack.heals, []);
+  assert.strictEqual(afterBack.players[3].healsLeft, 2);
+  await page.getByRole('button', { name: 'Keinen Heiltrank' }).click();
+  const skipped = await page.evaluate(function () {
+    return JSON.parse(localStorage.getItem('werwolf.game.v1'));
+  });
+  assert.deepStrictEqual(skipped.heals, []);
+  assert.strictEqual(skipped.players[3].healsLeft, 2);
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+
+  const none = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
+  await none.addInitScript(function (payload) {
+    localStorage.setItem('werwolf.game.v1', JSON.stringify(payload));
+  }, baseNight({
+    wolfVotes: {},
+    prompts: [{ kind: 'info', victimReveal: true, victims: [], text: 'Heute Nacht kein Opfer der Wölfe' }]
+  }));
+  await none.goto(base);
+  await none.locator('.victim-none').waitFor();
+  assert.strictEqual(await none.locator('.victim-none').innerText(), 'Heute Nacht kein Opfer der Wölfe');
+  assert.strictEqual(await none.locator('#app button[data-act="select"]').count(), 0);
+  await none.getByRole('button', { name: 'Weiter' }).click();
+  await none.close();
+}
+
+async function witchRules(browser, base) {
+  const page = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
+  await page.goto(base);
+  await page.getByRole('button', { name: 'Wir erzählen selber: aus' }).click();
+  await page.locator('summary', { hasText: 'Kurze Regeln' }).click();
+  const told = await page.locator('#app').innerText();
+  assert.ok(told.indexOf('Im Erzählermodus sieht sie die Opfer der Werwölfe') >= 0, told);
+  await page.getByRole('button', { name: 'Wir erzählen selber: an' }).click();
+  await page.locator('summary', { hasText: 'Kurze Regeln' }).click();
+  const blind = await page.locator('#app').innerText();
+  assert.ok(blind.indexOf('ohne das Opfer zu kennen') >= 0, blind);
+  assert.strictEqual(blind.indexOf('Im Erzählermodus sieht sie die Opfer der Werwölfe'), -1);
   await page.close();
 }
 
