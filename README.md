@@ -32,6 +32,18 @@ Nach einem Push die OpenScrapp in OpenScr mit ⟳ aktualisieren.
 6. **Morgen.** Die App sagt, wer gestorben ist und wen die Schaufel zurückgeholt hat. Danach Tag 1, dann Nacht 2, und so weiter.
 7. **Ende.** Alle Rollen liegen offen. Das Home-Symbol öffnet die Lobby, die Namen bleiben stehen.
 
+### Wir erzählen selber
+
+Der Schalter steht auf dem Startbildschirm und ist standardmäßig **aus**. Aus bleibt der bisherige Ablauf, inklusive Namensliste in der Nacht. An liegt unter `werwolf.setup.v1` im Feld `selfTell`. Die Schlüssel `werwolf.lobby.v1`, `werwolf.setup.v1`, `werwolf.game.v1` und `werwolf.scores.v1` bleiben.
+
+Der Erzähler trägt keinen Namen ein und bekommt keine Rolle. Zuerst geht das Handy wie immer herum: dieselbe Namensliste, Amor verbindet beim Aufdecken. Danach behält nur der Erzähler das Handy. Er sieht eine Übersicht Name, Rolle, lebend oder tot.
+
+In der Nacht ruft die App jede Karte auf, die im Setup möglich ist, in fester Reihenfolge. Bei „Mehr Rollen als Spieler“ sind das beim Werwolf das Maximum, bei den anderen Rollen die eingestellte Anzahl. Übrige Karten und tote Rollen werden mit aufgerufen. Der Erzähler liest den Aufruftext vor, zum Beispiel „Seherin, wach auf.“ Lebt jemand mit dieser Karte, tippt der Erzähler das Ziel aus der Namensliste. Zurück vor dem Bestätigen verbraucht nichts. Bei einer aussortierten oder toten Karte steht klein „Niemand handelt.“, der Bildschirm bleibt der Aufruf, und **Weiter** wird kurz gesperrt, damit der Takt gleich bleibt. Das Sehergebnis erscheint groß, damit der Erzähler es der Seherin zeigen kann. Aufgelöst wird mit derselben Nachtlogik wie ohne Erzähler.
+
+Reihenfolge: Amor, Waschbär, Nachahmerin, Gastgeberin, Seherin, Werwolf, Hexe, Schaufel, Jäger, Russe, Politiker, Dorfbewohner. Der Waschbär kommt vor den anderen, damit ein Diebstahl noch in dieser Nacht gilt, wenn das Opfer noch nicht gehandelt hat. Jäger, Russe, Politiker, Dorfbewohner und Amor haben nachts meist nichts zu tun und werden trotzdem gerufen.
+
+Am Tag tippt der Erzähler Duell, Jägerschuss und Abstimmung aus der Namensliste. Die App wertet Bürgermeisterstimme, Politiker, Liebe und Sieg wie bisher aus.
+
 Ein laufendes Spiel, inklusive Bildschirm und wer gerade dran ist, wird bei jeder Aktion gespeichert. Nach einem Absturz landet der nächste Start wieder an derselben Stelle.
 
 ## Rollen
@@ -200,12 +212,14 @@ WerwolfScrapp/
 ├── app.js
 ├── game.js
 ├── test/logic.test.js
+├── test/narrator.test.js
+├── test/narrator-ui.test.js
 └── README.md
 ```
 
 `openscr.json` ist das Manifest. `everyapp.json` hat denselben Inhalt und bleibt, damit ältere installierte Builds die OpenScrapp weiter laden. Der Anzeigename darin ist **Werwolf**.
 
-`node test/logic.test.js` prüft die Spiellogik.
+`node test/logic.test.js` prüft die Spiellogik. `node test/narrator.test.js` prüft den Modus „Wir erzählen selber“.
 
 ## Festgelegte Regeldetails
 

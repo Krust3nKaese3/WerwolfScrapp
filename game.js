@@ -22,6 +22,19 @@
     'waschbaer', 'nachahmerin', 'nutte', 'russe', 'politiker', 'schaufel'
   ];
 
+  /* Erzählermodus: feste Aufrufreihenfolge, einmal pro möglicher Karte.
+     Amor zuerst, weil die Verbindung schon beim Aufdecken steht und der Aufruf die Rolle nur verdeckt.
+     Waschbär vor allen anderen Nachtaktionen, damit ein Diebstahl noch in dieser Nacht gilt, wenn das Opfer noch nicht dran war.
+     Nachahmerin direkt danach, sie kopiert die aktuelle Rolle und setzt sie sofort ein.
+     Gastgeberin, bevor die Nacht aufgelöst wird.
+     Seherin, dann jede mögliche Wolfskarte, dann die blinde Hexe.
+     Schaufel holt nur Personen zurück, die schon als tot gelten.
+     Jäger, Russe, Politiker und Dorfbewohner haben nachts keine eigene Aktion und werden trotzdem gerufen. */
+  var NARRATOR_CALL_ORDER = [
+    'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'werwolf',
+    'hexe', 'schaufel', 'jaeger', 'russe', 'politiker', 'dorfbewohner'
+  ];
+
   var CAUSE_LABEL = {
     woelfe: 'von den Werwölfen',
     gift: 'durch Gift',
@@ -287,6 +300,7 @@
 
   function rewindToSetup(state) {
     var config = currentConfig(state);
+    var selfTell = !!state.selfTell;
     var players = (state.players || []).map(function (p) { return { id: p.id, name: p.name }; });
     var nextId = state.nextId;
     var log = state.log || [];
@@ -296,6 +310,7 @@
     fresh.nextId = nextId || (players.length + 1);
     fresh.log = log;
     fresh._rng = rng;
+    fresh.selfTell = selfTell;
     replaceState(state, fresh);
     applySetup(state, config);
     note(state, 'Rollen verworfen, zurück zur Rollenwahl');
@@ -329,7 +344,9 @@
     state.wolfMin = wolfMin;
     state.wolfMax = wolfMax;
     state.seerExact = !!opts.seerExact;
+    state.selfTell = !!opts.selfTell;
     state.config.rolePool = rolePool;
+    state.config.selfTell = state.selfTell;
     state.config.wolfMin = wolfMin;
     state.config.wolfMax = wolfMax;
     state.config.seerExact = state.seerExact;
@@ -381,6 +398,11 @@
       announce: null,
       seenLove: {},
       bonds: [],
+      selfTell: false,
+      narratorCalls: null,
+      narratorIndex: 0,
+      narratorQuiet: false,
+      sheetBack: null,
       winner: null,
       winReason: '',
       error: '',
@@ -449,6 +471,7 @@
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
+      selfTell: !!state.selfTell,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       log: state.log
@@ -813,7 +836,169 @@
     if (!state.order.length) {
       checkWin(state);
       setScreen(state, 'end');
+      return;
     }
+    if (state.selfTell) openNarratorSheet(state);
+  }
+
+  function potentialRoleCount(state, role) {
+    if (role === 'werwolf' && state.rolePool) {
+      if (isInt(state.wolfMax)) return state.wolfMax;
+      return (state.counts && state.counts.werwolf) || 0;
+    }
+    return (state.counts && state.counts[role]) || 0;
+  }
+
+  function buildNarratorCalls(state) {
+    var calls = [];
+    NARRATOR_CALL_ORDER.forEach(function (role) {
+      var slots = potentialRoleCount(state, role);
+      var holders = state.players.filter(function (p) { return p.role === role; });
+      var i;
+      for (i = 0; i < slots; i++) {
+        var holder = holders[i] || null;
+        calls.push({ role: role, playerId: holder ? holder.id : null, slot: i });
+      }
+      for (i = slots; i < holders.length; i++) {
+        if (!holders[i].alive) continue;
+        calls.push({ role: role, playerId: holders[i].id, slot: i, extra: true });
+      }
+    });
+    return calls;
+  }
+
+  function narratorWakeText(role) {
+    return roleName(role) + ', wach auf.';
+  }
+
+  function narratorCallQuiet(state, call) {
+    if (!call || call.playerId == null) return { quiet: true, reason: 'discarded' };
+    var player = playerById(state, call.playerId);
+    if (!player || !player.alive) return { quiet: true, reason: 'dead' };
+    if (player.role !== call.role) return { quiet: true, reason: 'gone' };
+    if (state.nightDone && state.nightDone.indexOf(player.id) >= 0) return { quiet: true, reason: 'gone' };
+    return { quiet: false, reason: '' };
+  }
+
+  function narratorScript(state) {
+    var calls = state.narratorCalls || buildNarratorCalls(state);
+    return calls.map(function (call) {
+      var quiet = narratorCallQuiet(state, call);
+      return {
+        role: call.role,
+        playerId: call.playerId,
+        slot: call.slot,
+        quiet: quiet.quiet,
+        reason: quiet.reason,
+        wake: narratorWakeText(call.role)
+      };
+    });
+  }
+
+  function openNarratorSheet(state) {
+    state.narratorCalls = buildNarratorCalls(state);
+    state.narratorIndex = 0;
+    state.narratorQuiet = false;
+    state.sheetBack = null;
+    state.step = 'sheet';
+    state.activeId = null;
+    state.actorId = null;
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    note(state, 'Erzähler ' + state.narratorCalls.map(function (call) { return call.role; }).join(' '));
+  }
+
+  function openNarratorCall(state) {
+    if (!state.narratorCalls || state.narratorIndex >= state.narratorCalls.length) {
+      state.narratorQuiet = false;
+      endPass(state);
+      return;
+    }
+    var call = state.narratorCalls[state.narratorIndex];
+    var quiet = narratorCallQuiet(state, call);
+    state.narratorQuiet = quiet.quiet;
+    state.selection = [];
+    state.error = '';
+    state.prompts = [];
+    state.promptIndex = 0;
+    if (quiet.quiet) {
+      state.step = 'call';
+      state.activeId = null;
+      state.actorId = null;
+      note(state, 'Erzähler still ' + call.role + ' ' + quiet.reason);
+      return;
+    }
+    var player = playerById(state, call.playerId);
+    state.activeId = player.id;
+    state.actorId = player.id;
+    state.step = 'show';
+    state.prompts = buildNightPrompts(state, player);
+    note(state, 'Erzähler ruft ' + call.role + ' ' + player.name);
+  }
+
+  function ackQuietCall(state) {
+    var call = state.narratorCalls && state.narratorCalls[state.narratorIndex];
+    var player = call && call.playerId != null ? playerById(state, call.playerId) : null;
+    if (player && player.notice && player.notice.night === state.nightNumber) player.notice = null;
+    if (player) {
+      var sig = loveSignature(state, player.id);
+      if (sig && !state.seenLove[player.id]) state.seenLove[player.id] = sig;
+    }
+    state.narratorIndex += 1;
+    openNarratorCall(state);
+  }
+
+  function finishNarratorTurn(state) {
+    var id = state.activeId;
+    if (id != null && state.nightDone.indexOf(id) < 0) state.nightDone.push(id);
+    state.activeId = null;
+    state.actorId = null;
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    state.error = '';
+    state.narratorIndex += 1;
+    openNarratorCall(state);
+  }
+
+  function narratorNightSend(state, action) {
+    if (state.step === 'sheet') {
+      if (action.type !== 'ack' && action.type !== 'narrator-begin') return;
+      if (state.sheetBack) {
+        state.step = state.sheetBack;
+        state.sheetBack = null;
+        state.error = '';
+        return;
+      }
+      openNarratorCall(state);
+      return;
+    }
+    if (action.type === 'narrator-sheet') {
+      if (state.step === 'show' && (state.promptIndex || 0) > 0) {
+        state.error = 'Die Aktion hat schon angefangen.';
+        return;
+      }
+      state.sheetBack = state.step === 'show' ? 'show' : 'call';
+      state.step = 'sheet';
+      state.error = '';
+      return;
+    }
+    if (state.step === 'call') {
+      if (action.type === 'ack' || action.type === 'narrator-next') ackQuietCall(state);
+      return;
+    }
+    if (state.step === 'show' && action.type === 'back') {
+      if ((state.promptIndex || 0) > 0) {
+        state.error = 'Die Aktion hat schon angefangen.';
+        return;
+      }
+      state.selection = [];
+      state.error = '';
+      note(state, 'Erzähler Zug zurück');
+      return;
+    }
+    if (state.step === 'show') handleShowAction(state, action);
   }
 
   function currentId(state) {
@@ -1182,7 +1367,8 @@
     state.selection = [];
     state.error = '';
     if (state.promptIndex >= state.prompts.length) {
-      if (state.screen === 'night') finishNightActor(state);
+      if (state.screen === 'night' && state.selfTell) finishNarratorTurn(state);
+      else if (state.screen === 'night') finishNightActor(state);
       else if (state.screen === 'vote') finishVoteActor(state);
       else nextPlayer(state);
     }
@@ -1511,6 +1697,7 @@
 
   function keepRoster(state, action, screenBefore, actorBefore) {
     if (!state || (screenBefore !== 'night' && screenBefore !== 'vote')) return;
+    if (state.selfTell && screenBefore === 'night') return;
     if (state.screen !== screenBefore) return;
     if (action.type === 'night-pick' || action.type === 'vote-pick' || action.type === 'go' || action.type === 'back') return;
     var done = screenBefore === 'night' ? state.nightDone : state.voteDone;
@@ -1570,6 +1757,12 @@
     if (action.type === 'toggle-seer') {
       state.seerExact = !state.seerExact;
       state.error = '';
+      return;
+    }
+    if (action.type === 'toggle-self-tell') {
+      state.selfTell = !state.selfTell;
+      state.error = '';
+      note(state, 'Wir erzählen selber ' + (state.selfTell ? 'an' : 'aus'));
       return;
     }
     if (action.type === 'toggle-pool') {
@@ -1635,6 +1828,7 @@
     lobby.players = (state.players || []).map(function (p) { return { id: p.id, name: p.name }; });
     lobby.nextId = state.nextId || (lobby.players.length + 1);
     lobby.log = state.log || [];
+    lobby.selfTell = !!state.selfTell;
     return lobby;
   }
 
@@ -1826,6 +2020,7 @@
   }
 
   function turnSend(state, action) {
+    if (state.selfTell && state.screen === 'night') return narratorNightSend(state, action);
     if (state.screen === 'night' && state.step === 'list') {
       if (action.type !== 'night-pick') return;
       var picked = playerById(state, action.id);
@@ -1855,6 +2050,11 @@
       }
       state.activeId = voter.id;
       state.actorId = voter.id;
+      if (state.selfTell) {
+        openTurn(state);
+        note(state, 'Abstimmungswahl ' + voter.name);
+        return;
+      }
       state.step = 'ready';
       state.prompts = [];
       state.promptIndex = 0;
@@ -1916,9 +2116,14 @@
       state.activeId = pickedHunter.id;
       state.actorId = pickedHunter.id;
       state.hunterId = pickedHunter.id;
-      state.step = 'ready';
       state.selection = [];
       state.error = '';
+      if (state.selfTell) {
+        state.step = 'show';
+        note(state, 'Jäger schießt ' + pickedHunter.name);
+        return;
+      }
+      state.step = 'ready';
       return;
     }
     if (state.step === 'ready') {
@@ -2139,7 +2344,16 @@
       mayorId: state.mayorId,
       day: state.day,
       nightNumber: state.nightNumber,
-      pass: state.pass
+      pass: state.pass,
+      selfTell: !!state.selfTell,
+      narratorQuiet: !!state.narratorQuiet,
+      narratorIndex: state.narratorIndex || 0,
+      narratorRole: (state.step === 'call' || state.step === 'show') && state.narratorCalls && state.narratorCalls[state.narratorIndex]
+        ? state.narratorCalls[state.narratorIndex].role
+        : null,
+      wake: (state.step === 'call' || state.step === 'show') && state.narratorCalls && state.narratorCalls[state.narratorIndex]
+        ? narratorWakeText(state.narratorCalls[state.narratorIndex].role)
+        : ''
     };
   }
 
@@ -2228,6 +2442,11 @@
     APP_VERSION: APP_VERSION,
     ROLE_NAMES: ROLE_NAMES,
     ROLE_ORDER: ROLE_ORDER,
+    NARRATOR_CALL_ORDER: NARRATOR_CALL_ORDER,
+    potentialRoleCount: potentialRoleCount,
+    buildNarratorCalls: buildNarratorCalls,
+    narratorScript: narratorScript,
+    narratorWakeText: narratorWakeText,
     CAUSE_LABEL: CAUSE_LABEL,
     WIN_TEXT: WIN_TEXT,
     teamOfRole: teamOfRole,
