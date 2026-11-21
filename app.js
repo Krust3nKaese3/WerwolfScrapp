@@ -272,8 +272,11 @@
     var text = {
       werwolf: 'Nachts wählt das Rudel gemeinsam ein Haus.',
       dorfbewohner: 'Du hast keine Sonderfähigkeit. Nachts schläfst du.',
-      hexe: 'Du hast ' + (state.healPotions || (person && person.healsLeft) || 2) +
-        ' Heiltränke für das ganze Spiel, in einer Nacht auch mehrere, jedes Haus nur einmal. Dazu einen Gifttrank. Du siehst nicht, wer angegriffen wird.',
+      hexe: state.selfTell
+        ? 'Du hast ' + (state.healPotions || (person && person.healsLeft) || 2) +
+          ' Heiltränke für das ganze Spiel. Wenn du nach den Wölfen aufgerufen wirst, siehst du die Opfer und kannst eines mit einem Heiltrank retten. Der Trank schützt in dieser Nacht das Haus, in dem das Opfer schläft. Mehrere Opfer darfst du heilen, solange Tränke übrig sind. Dazu einen Gifttrank.'
+        : 'Du hast ' + (state.healPotions || (person && person.healsLeft) || 2) +
+          ' Heiltränke für das ganze Spiel, in einer Nacht auch mehrere, jedes Haus nur einmal. Dazu einen Gifttrank. Du siehst nicht, wer angegriffen wird.',
       seherin: state.seerExact
         ? 'Nachts siehst du die genaue Rolle einer Person.'
         : 'Nachts siehst du nur Team Dorfbewohner oder Böse.',
@@ -355,7 +358,9 @@
       '<li>Werwölfe: Mehrheit, bei Gleichstand das Haus im Uhrzeigersinn ab dem Bürgermeister.</li>' +
       '<li>Abstimmung: Bürgermeister zählt 1,5. Gleichstand heißt, niemand stirbt.</li>' +
       '<li>Nach dem Aufdecken beginnt Nacht 1. Tag 1 folgt am Morgen. Das Amt dreht ab dem Ende von Nacht 2 jeden Morgen einen lebenden Sitz weiter und zusätzlich, wenn der Bürgermeister stirbt.</li>' +
-      '<li>Die Hexe hat ' + (state.healPotions || 2) + ' Heiltränke für das Spiel. Sie schützt Häuser, ohne das Opfer zu kennen. Ein Trank hält in dieser Nacht jeden Tod in dem Haus auf.</li>' +
+      '<li>' + (state.selfTell
+        ? 'Die Hexe hat ' + (state.healPotions || 2) + ' Heiltränke für das Spiel. Im Erzählermodus sieht sie die Opfer der Werwölfe und kann eines davon retten. Ein Trank schützt in dieser Nacht das Haus des Opfers. Mehrere Opfer darf sie heilen, solange Tränke übrig sind. Gibt es kein Wolfsopfer, bleibt der Trank liegen. Dazu einen Gifttrank.'
+        : 'Die Hexe hat ' + (state.healPotions || 2) + ' Heiltränke für das Spiel. Sie schützt Häuser, ohne das Opfer zu kennen. Ein Trank hält in dieser Nacht jeden Tod in dem Haus auf.') + '</li>' +
       '</ul></details>';
   }
 
@@ -587,9 +592,11 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     if (prompt.kind === 'seer-result') {
       return header(phaseEyebrow(), 'Seherin') + '<div class="stack">' + errorHtml() + promptHtml(person, prompt) + '</div>';
     }
-    var back = (state.promptIndex || 0) === 0
+    var started = (state.promptIndex || 0) > 0;
+    var picked = (state.selection || []).length > 0;
+    var back = (!started || picked)
       ? '<button type="button" class="btn secondary" data-act="back">Zurück</button>' +
-        '<button type="button" class="btn secondary" data-act="narrator-sheet">Rollenliste</button>'
+        (started ? '' : '<button type="button" class="btn secondary" data-act="narrator-sheet">Rollenliste</button>')
       : '';
     return header(phaseEyebrow(), W.roleName(person.role)) +
       '<div class="stack">' + errorHtml() +
@@ -696,6 +703,7 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       return hero('💞', 'Liebe') + '<div class="banner love">Du bist verliebt. Stirbt eine Person aus dieser Gruppe, sterben alle verbundenen Personen mit.</div>' +
         '<div class="card stack">' + lines + '</div><button type="button" class="btn" data-act="ack">Verdecken</button>';
     }
+    if (prompt.kind === 'info' && prompt.victimReveal) return victimRevealBlock(prompt);
     if (prompt.kind === 'info') {
       return hero('📢', 'Hinweis') + '<div class="card"><p class="lead">' + esc(prompt.text) + '</p></div><button type="button" class="btn" data-act="ack">Weiter</button>';
     }
@@ -713,6 +721,29 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         '<button type="button" class="btn" data-act="ack">Verdecken</button></section>';
     }
     return choiceBlock(person, prompt);
+  }
+
+  function victimNames(ids) {
+    return (ids || []).map(function (id) {
+      var person = player(id);
+      return person ? person.name : '';
+    }).filter(Boolean);
+  }
+
+  function victimRevealHtml(ids) {
+    var names = victimNames(ids);
+    if (!names.length) return '<p class="victim-none">Heute Nacht kein Opfer der Wölfe</p>';
+    return '<p class="eyebrow">Opfer der Wölfe</p>' + names.map(function (name) {
+      return '<p class="victim-huge">' + esc(name) + '</p>';
+    }).join('');
+  }
+
+  function victimRevealBlock(prompt) {
+    var names = victimNames(prompt.victims);
+    var extra = names.length && prompt.text && prompt.text !== 'Heute Nacht kein Opfer der Wölfe'
+      ? '<p class="lead">' + esc(prompt.text) + '</p>' : '';
+    return '<p class="hero">' + flask('heal') + '</p>' + victimRevealHtml(prompt.victims) + extra +
+      '<button type="button" class="btn" data-act="ack">Weiter</button>';
   }
 
   function choiceBlock(person, prompt) {
@@ -760,8 +791,11 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       seer: 'Wessen Rolle willst du sehen?',
       amor: 'Wähle zwei Personen. Du selbst darfst dabei sein. Aussetzen geht nicht. Wer heute schon dran war, erfährt die Liebe erst in der nächsten Nacht.',
       copy: 'Wen ahmst du nach? Die Fähigkeit ist frisch und muss in dieser Nacht eingesetzt werden.',
-      heal: 'Du darfst ein Haus schützen, ohne zu wissen, wer angegriffen wird. Der Trank gilt nur diese Nacht und hält jeden Tod in diesem Haus auf: Wölfe, Gift und nächtliche Schüsse. Jedes Haus nur einmal. Noch ' +
-        (prompt.healsLeft || 0) + ' Heiltrank' + ((prompt.healsLeft || 0) === 1 ? '' : 'e') + '.',
+      heal: prompt.reactive
+        ? 'Wen rettest du? Die Liste zeigt nur die Opfer. Ein Heiltrank rettet die Person vor den Wölfen und schützt in dieser Nacht das Haus, in dem sie schläft. Jedes Haus nur einmal. Noch ' +
+          (prompt.healsLeft || 0) + ' Heiltrank' + ((prompt.healsLeft || 0) === 1 ? '' : 'e') + '.'
+        : 'Du darfst ein Haus schützen, ohne zu wissen, wer angegriffen wird. Der Trank gilt nur diese Nacht und hält jeden Tod in diesem Haus auf: Wölfe, Gift und nächtliche Schüsse. Jedes Haus nur einmal. Noch ' +
+          (prompt.healsLeft || 0) + ' Heiltrank' + ((prompt.healsLeft || 0) === 1 ? '' : 'e') + '.',
       poison: 'Welches andere Haus vergiftest du? Alle, die darin sind, sterben, außer ein Heiltrank schützt das Haus in dieser Nacht.',
       kill: prompt.attack === 'wolf'
         ? 'Zusätzlicher Werwolf-Angriff: wähle ein Haus.'
@@ -781,7 +815,8 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       kill: hero('🩸', 'Angriff'),
       schaufel: hero('⛏️', 'Schaufel')
     };
-    return (marks[prompt.kind] || '') + '<p class="lead">' + esc(text[prompt.kind] || 'Wähle.') + '</p>';
+    var reveal = prompt.reactive ? victimRevealHtml(prompt.victims) : '';
+    return (marks[prompt.kind] || '') + '<p class="lead">' + esc(text[prompt.kind] || 'Wähle.') + '</p>' + reveal;
   }
 
   function renderHunter() {

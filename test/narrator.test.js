@@ -483,6 +483,232 @@ test('Quick Amor aus ruft Amor in Nacht 1 vor den Wölfen und später nur zum Sc
   assert.strictEqual(state.players[1].amorLinked, true);
 });
 
+function reachHexe(state, choose) {
+  let guard = 0;
+  while (state.screen === 'night') {
+    const view = W.view(state);
+    const call = state.narratorCalls && state.narratorCalls[state.narratorIndex];
+    if (view.step === 'show' && call && call.role === 'hexe' && !state.narratorQuiet) return view;
+    if (view.step === 'sheet' || view.step === 'call') W.send(state, { type: 'ack' });
+    else {
+      const choice = choose(view, state);
+      if (choice) W.send(state, choice);
+      else if (view.prompt && ['sleep', 'love', 'notice', 'info', 'seer-result'].indexOf(view.prompt.kind) >= 0) W.send(state, { type: 'ack' });
+      else W.send(state, { type: 'skip' });
+    }
+    if (++guard > 40) throw new Error('reach hexe ' + JSON.stringify(W.view(state)));
+  }
+  throw new Error('Nacht vorbei vor Hexe');
+}
+
+test('Erzählermodus: Hexe sieht das Wolfsopfer, Heilung rettet und verbraucht einen Trank', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.nutte = 1;
+  counts.dorfbewohner = 1;
+  counts.hexe = 1;
+  const state = make(['Gast', 'Wirt', 'Wolf', 'Hexe'], counts, { selfTell: true, rolePool: false, healPotions: 2 });
+  setRoles(state, ['nutte', 'dorfbewohner', 'werwolf', 'hexe']);
+  W.beginNight(state);
+  const view = reachHexe(state, function (current) {
+    if (current.prompt && current.prompt.kind === 'nutte') return { type: 'confirm', id: 2 };
+    if (current.prompt && current.prompt.kind === 'wolf') return { type: 'confirm', id: 2 };
+    return null;
+  });
+  assert.strictEqual(view.prompt.kind, 'heal');
+  assert.strictEqual(view.prompt.reactive, true);
+  assert.deepStrictEqual(view.prompt.victims.map(Number), [1, 2]);
+  assert.deepStrictEqual(W.targetsFor(state, view.prompt, 4).map(function (p) { return p.id; }), [1, 2]);
+  assert.ok(!view.prompt.attacks);
+  W.send(state, { type: 'select', id: 1 });
+  W.send(state, { type: 'back' });
+  assert.deepStrictEqual(state.selection, []);
+  assert.deepStrictEqual(state.heals, []);
+  assert.strictEqual(W.playerById(state, 4).healsLeft, 2);
+  assert.strictEqual(W.view(state).prompt.kind, 'heal');
+  W.send(state, { type: 'confirm', id: 1 });
+  assert.deepStrictEqual(state.heals.map(Number), [2]);
+  assert.strictEqual(W.playerById(state, 4).healsLeft, 1);
+  assert.notStrictEqual(W.view(state).prompt.kind, 'heal');
+  W.send(state, { type: 'skip' });
+  let guard = 0;
+  while (state.screen === 'night') {
+    const step = W.view(state);
+    if (step.step === 'call' || step.step === 'sheet') W.send(state, { type: 'ack' });
+    else if (step.prompt && ['sleep', 'love', 'notice', 'info', 'seer-result'].indexOf(step.prompt.kind) >= 0) W.send(state, { type: 'ack' });
+    else W.send(state, { type: 'skip' });
+    if (++guard > 30) throw new Error(JSON.stringify(W.view(state)));
+  }
+  assert.strictEqual(W.playerById(state, 1).alive, true);
+  assert.strictEqual(W.playerById(state, 2).alive, true);
+  assert.strictEqual(W.playerById(state, 4).healsLeft, 1);
+});
+
+test('Erzählermodus: mehrere Wolfsopfer, jeder Trank ein Haus', function () {
+  const counts = blankCounts();
+  counts.nachahmerin = 1;
+  counts.werwolf = 1;
+  counts.dorfbewohner = 1;
+  counts.hexe = 1;
+  const state = make(['Nach', 'Wolf', 'Anna', 'Hexe'], counts, { selfTell: true, rolePool: false, healPotions: 2 });
+  setRoles(state, ['nachahmerin', 'werwolf', 'dorfbewohner', 'hexe']);
+  W.beginNight(state);
+  const view = reachHexe(state, function (current) {
+    if (current.prompt && current.prompt.kind === 'copy') return { type: 'confirm', id: 2 };
+    if (current.prompt && current.prompt.kind === 'kill') return { type: 'confirm', id: 3 };
+    if (current.prompt && current.prompt.kind === 'wolf') return { type: 'confirm', id: 1 };
+    return null;
+  });
+  assert.strictEqual(view.prompt.reactive, true);
+  assert.deepStrictEqual(view.prompt.victims.map(Number), [1, 3]);
+  W.send(state, { type: 'confirm', id: 3 });
+  assert.deepStrictEqual(state.heals.map(Number), [3]);
+  assert.strictEqual(W.playerById(state, 4).healsLeft, 1);
+  assert.strictEqual(W.view(state).prompt.kind, 'heal');
+  assert.deepStrictEqual(W.view(state).prompt.victims.map(Number), [1]);
+  W.send(state, { type: 'confirm', id: 1 });
+  assert.deepStrictEqual(state.heals.map(Number).sort(), [1, 3]);
+  assert.strictEqual(W.playerById(state, 4).healsLeft, 0);
+  assert.strictEqual(W.view(state).prompt.kind, 'poison');
+  W.send(state, { type: 'skip' });
+  playNarrator(state, function () { return null; });
+  assert.strictEqual(W.playerById(state, 1).alive, true);
+  assert.strictEqual(W.playerById(state, 3).alive, true);
+});
+
+test('Erzählermodus: ohne Wolfsopfer kein Heiltrank, tote Hexe verrät nichts', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.dorfbewohner = 2;
+  counts.hexe = 1;
+  const state = make(['Wolf', 'Anna', 'Bert', 'Hexe'], counts, { selfTell: true, rolePool: false, healPotions: 2 });
+  setRoles(state, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'hexe']);
+  W.beginNight(state);
+  let guard = 0;
+  while (state.screen === 'night' && !(W.view(state).prompt && W.view(state).prompt.victimReveal)) {
+    const view = W.view(state);
+    if (view.step === 'sheet' || view.step === 'call') W.send(state, { type: 'ack' });
+    else if (view.prompt && view.prompt.kind === 'wolf') W.send(state, { type: 'skip' });
+    else if (view.prompt && ['sleep', 'love', 'notice', 'info', 'seer-result'].indexOf(view.prompt.kind) >= 0) W.send(state, { type: 'ack' });
+    else W.send(state, { type: 'skip' });
+    if (++guard > 30) throw new Error(JSON.stringify(W.view(state)));
+  }
+  const shown = W.view(state).prompt;
+  assert.strictEqual(shown.victimReveal, true);
+  assert.deepStrictEqual(shown.victims, []);
+  assert.strictEqual(shown.text, 'Heute Nacht kein Opfer der Wölfe');
+  assert.strictEqual(W.playerById(state, 4).healsLeft, 2);
+  W.send(state, { type: 'ack' });
+  assert.strictEqual(W.view(state).prompt.kind, 'poison');
+  assert.strictEqual(W.playerById(state, 4).healsLeft, 2);
+
+  const dead = make(['Wolf', 'Anna', 'Bert', 'Hexe'], counts, { selfTell: true, rolePool: false });
+  setRoles(dead, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'hexe']);
+  W.playerById(dead, 4).alive = false;
+  W.beginNight(dead);
+  guard = 0;
+  while (dead.screen === 'night' && !(dead.narratorCalls[dead.narratorIndex] && dead.narratorCalls[dead.narratorIndex].role === 'hexe' && dead.step === 'call')) {
+    const view = W.view(dead);
+    if (view.step === 'sheet' || view.step === 'call') W.send(dead, { type: 'ack' });
+    else if (view.prompt && view.prompt.kind === 'wolf') W.send(dead, { type: 'confirm', id: 2 });
+    else if (view.prompt && ['sleep', 'love', 'notice', 'info', 'seer-result'].indexOf(view.prompt.kind) >= 0) W.send(dead, { type: 'ack' });
+    else W.send(dead, { type: 'skip' });
+    if (++guard > 30) throw new Error(JSON.stringify(W.view(dead)));
+  }
+  assert.strictEqual(dead.narratorQuiet, true);
+  assert.strictEqual(W.view(dead).prompt, null);
+  assert.strictEqual(dead.step, 'call');
+  assert.ok(!JSON.stringify(W.view(dead)).includes('Opfer'));
+});
+
+test('Ohne Erzählermodus bleibt die Hexe blind, auch wenn mitten in der Nacht umgeschaltet wird', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.dorfbewohner = 2;
+  counts.hexe = 1;
+  const blind = make(['Wolf', 'Anna', 'Bert', 'Hexe'], counts, { selfTell: false, rolePool: false, healPotions: 2 });
+  setRoles(blind, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'hexe']);
+  W.beginNight(blind);
+  W.send(blind, { type: 'night-pick', id: 1 });
+  W.send(blind, { type: 'go' });
+  W.send(blind, { type: 'confirm', id: 2 });
+  W.send(blind, { type: 'night-pick', id: 4 });
+  W.send(blind, { type: 'go' });
+  const classic = W.view(blind).prompt;
+  assert.strictEqual(classic.kind, 'heal');
+  assert.ok(!classic.reactive);
+  assert.ok(!classic.victims);
+  assert.ok(!classic.attacks);
+  const houses = W.targetsFor(blind, classic, 4).map(function (p) { return p.id; });
+  assert.deepStrictEqual(houses, [1, 2, 3, 4]);
+  W.send(blind, { type: 'confirm', id: 3 });
+  assert.deepStrictEqual(blind.heals.map(Number), [3]);
+  assert.strictEqual(W.playerById(blind, 4).healsLeft, 1);
+  assert.strictEqual(W.view(blind).prompt.kind, 'heal');
+  assert.ok(W.targetsFor(blind, W.view(blind).prompt, 4).some(function (p) { return p.id === 2; }));
+  W.send(blind, { type: 'skip' });
+  assert.strictEqual(W.view(blind).prompt.kind, 'poison');
+  W.send(blind, { type: 'skip' });
+  playClassic(blind, function () { return null; });
+  assert.strictEqual(W.playerById(blind, 2).alive, false);
+  assert.strictEqual(W.playerById(blind, 3).alive, true);
+
+  const switched = make(['Wolf', 'Anna', 'Bert', 'Hexe'], counts, { selfTell: true, rolePool: false, healPotions: 2 });
+  setRoles(switched, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'hexe']);
+  const pool = blankCounts();
+  pool.werwolf = 2;
+  pool.dorfbewohner = 2;
+  pool.hexe = 1;
+  switched.counts = pool;
+  switched.rolePool = true;
+  switched.wolfMin = 1;
+  switched.wolfMax = 2;
+  W.beginNight(switched);
+  let guard = 0;
+  while (switched.screen === 'night' && !(switched.step === 'call' && switched.narratorCalls[switched.narratorIndex].role === 'werwolf' && switched.narratorQuiet)) {
+    const view = W.view(switched);
+    if (view.step === 'sheet' || view.step === 'call') W.send(switched, { type: 'ack' });
+    else if (view.prompt && view.prompt.kind === 'wolf') W.send(switched, { type: 'confirm', id: 2 });
+    else if (view.prompt && ['sleep', 'love', 'notice', 'info', 'seer-result'].indexOf(view.prompt.kind) >= 0) W.send(switched, { type: 'ack' });
+    else W.send(switched, { type: 'skip' });
+    if (++guard > 30) throw new Error(JSON.stringify(W.view(switched)));
+  }
+  assert.strictEqual(switched.wolfVotes[1], 2);
+  W.send(switched, { type: 'toggle-self-tell' });
+  assert.strictEqual(switched.selfTell, false);
+  assert.strictEqual(switched.step, 'list');
+  W.send(switched, { type: 'night-pick', id: 4 });
+  W.send(switched, { type: 'go' });
+  const later = W.view(switched).prompt;
+  assert.strictEqual(later.kind, 'heal');
+  assert.ok(!later.reactive);
+  assert.deepStrictEqual(W.targetsFor(switched, later, 4).map(function (p) { return p.id; }), [1, 2, 3, 4]);
+
+  const told = make(['Wolf', 'Anna', 'Bert', 'Hexe'], counts, { selfTell: false, rolePool: false, healPotions: 1 });
+  setRoles(told, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'hexe']);
+  W.beginNight(told);
+  W.send(told, { type: 'night-pick', id: 1 });
+  W.send(told, { type: 'go' });
+  W.send(told, { type: 'confirm', id: 2 });
+  W.send(told, { type: 'toggle-self-tell' });
+  assert.strictEqual(told.step, 'sheet');
+  guard = 0;
+  while (told.screen === 'night' && !(W.view(told).prompt && W.view(told).prompt.reactive)) {
+    const view = W.view(told);
+    if (view.step === 'sheet' || view.step === 'call') W.send(told, { type: 'ack' });
+    else if (view.prompt && view.prompt.kind === 'wolf') W.send(told, { type: 'skip' });
+    else if (view.prompt && ['sleep', 'love', 'notice', 'info', 'seer-result'].indexOf(view.prompt.kind) >= 0) W.send(told, { type: 'ack' });
+    else W.send(told, { type: 'skip' });
+    if (++guard > 30) throw new Error(JSON.stringify(W.view(told)));
+  }
+  assert.deepStrictEqual(W.view(told).prompt.victims.map(Number), [2]);
+  assert.deepStrictEqual(W.targetsFor(told, W.view(told).prompt, 4).map(function (p) { return p.id; }), [2]);
+  W.send(told, { type: 'confirm', id: 2 });
+  assert.strictEqual(W.playerById(told, 4).healsLeft, 0);
+  assert.deepStrictEqual(told.heals.map(Number), [2]);
+  assert.strictEqual(W.view(told).prompt.kind, 'poison');
+});
+
 test('Schalter merkt sich nur ein zusätzliches Feld, alte Schlüssel bleiben', function () {
   const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   assert.ok(src.indexOf("var LOBBY_KEY = 'werwolf.lobby.v1'") >= 0);
