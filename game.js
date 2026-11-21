@@ -22,6 +22,20 @@
     'waschbaer', 'nachahmerin', 'nutte', 'russe', 'politiker', 'schaufel'
   ];
 
+  /* Erzählermodus: feste Aufrufreihenfolge, einmal pro möglicher Karte.
+     Amor zuerst. Bei Quick Amor steht die Verbindung schon beim Aufdecken, der Aufruf verdeckt die Rolle nur.
+     Ohne Quick Amor verbindet er in Nacht 1 an dieser Stelle, vor den Wölfen. In späteren Nächten bleibt der Aufruf, ohne neue Verbindung.
+     Waschbär vor allen anderen Nachtaktionen, damit ein Diebstahl noch in dieser Nacht gilt, wenn das Opfer noch nicht dran war.
+     Nachahmerin direkt danach, sie kopiert die aktuelle Rolle und setzt sie sofort ein.
+     Gastgeberin, bevor die Nacht aufgelöst wird.
+     Seherin, dann jede mögliche Wolfskarte, dann die blinde Hexe.
+     Schaufel holt nur Personen zurück, die schon als tot gelten.
+     Jäger, Russe, Politiker und Dorfbewohner haben nachts keine eigene Aktion und werden trotzdem gerufen. */
+  var NARRATOR_CALL_ORDER = [
+    'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'werwolf',
+    'hexe', 'schaufel', 'jaeger', 'russe', 'politiker', 'dorfbewohner'
+  ];
+
   var CAUSE_LABEL = {
     woelfe: 'von den Werwölfen',
     gift: 'durch Gift',
@@ -245,6 +259,8 @@
       healPotions: 2,
       rolePool: true,
       seerExact: false,
+      showWolfAction: false,
+      quickAmor: true,
       wolfMin: wolves,
       wolfMax: wolves
     };
@@ -258,6 +274,8 @@
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
+      showWolfAction: !!state.showWolfAction,
+      quickAmor: state.quickAmor !== false,
       wolfMin: state.wolfMin == null ? wolves : state.wolfMin,
       wolfMax: state.wolfMax == null ? wolves : state.wolfMax
     };
@@ -269,6 +287,8 @@
     state.healPotions = config.healPotions;
     state.rolePool = !!config.rolePool;
     state.seerExact = !!config.seerExact;
+    state.showWolfAction = !!config.showWolfAction;
+    state.quickAmor = config.quickAmor !== false;
     state.wolfMin = config.wolfMin;
     state.wolfMax = config.wolfMax;
     state.confirmUndoDeal = false;
@@ -287,6 +307,7 @@
 
   function rewindToSetup(state) {
     var config = currentConfig(state);
+    var selfTell = !!state.selfTell;
     var players = (state.players || []).map(function (p) { return { id: p.id, name: p.name }; });
     var nextId = state.nextId;
     var log = state.log || [];
@@ -296,6 +317,7 @@
     fresh.nextId = nextId || (players.length + 1);
     fresh.log = log;
     fresh._rng = rng;
+    fresh.selfTell = selfTell;
     replaceState(state, fresh);
     applySetup(state, config);
     note(state, 'Rollen verworfen, zurück zur Rollenwahl');
@@ -329,7 +351,13 @@
     state.wolfMin = wolfMin;
     state.wolfMax = wolfMax;
     state.seerExact = !!opts.seerExact;
+    state.selfTell = !!opts.selfTell;
+    state.showWolfAction = !!opts.showWolfAction;
+    state.quickAmor = opts.quickAmor !== false;
     state.config.rolePool = rolePool;
+    state.config.selfTell = state.selfTell;
+    state.config.showWolfAction = state.showWolfAction;
+    state.config.quickAmor = state.quickAmor;
     state.config.wolfMin = wolfMin;
     state.config.wolfMax = wolfMax;
     state.config.seerExact = state.seerExact;
@@ -381,6 +409,12 @@
       announce: null,
       seenLove: {},
       bonds: [],
+      selfTell: false,
+      quickAmor: true,
+      narratorCalls: null,
+      narratorIndex: 0,
+      narratorQuiet: false,
+      sheetBack: null,
       winner: null,
       winReason: '',
       error: '',
@@ -449,6 +483,9 @@
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
+      selfTell: !!state.selfTell,
+      showWolfAction: !!state.showWolfAction,
+      quickAmor: state.quickAmor !== false,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       log: state.log
@@ -813,7 +850,290 @@
     if (!state.order.length) {
       checkWin(state);
       setScreen(state, 'end');
+      return;
     }
+    if (state.selfTell) openNarratorSheet(state);
+    else if (nightWaitsForAmor(state)) openAmorFirst(state);
+  }
+
+  function unlinkedAmors(state) {
+    return (state.players || []).filter(function (p) {
+      return p.alive && p.role === 'amor' && !p.amorLinked;
+    });
+  }
+
+  function amorLinksTonight(state, player) {
+    if (!player || player.role !== 'amor' || player.amorLinked) return false;
+    if ((state.nightNumber || 0) !== 1) return false;
+    return state.quickAmor === false || !!state.forceAmorNight;
+  }
+
+  function nightWaitsForAmor(state) {
+    if (!state || state.screen !== 'night' || state.selfTell) return false;
+    if ((state.nightNumber || 0) !== 1) return false;
+    var done = state.nightDone || [];
+    return unlinkedAmors(state).some(function (p) {
+      return amorLinksTonight(state, p) && done.indexOf(p.id) < 0;
+    });
+  }
+
+  function openAmorFirst(state) {
+    var done = state.nightDone || [];
+    var next = unlinkedAmors(state).filter(function (p) {
+      return amorLinksTonight(state, p) && done.indexOf(p.id) < 0;
+    })[0];
+    if (!next) {
+      state.step = 'list';
+      state.activeId = null;
+      state.actorId = null;
+      return;
+    }
+    state.activeId = next.id;
+    state.actorId = next.id;
+    state.step = 'ready';
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    state.error = '';
+    note(state, 'Amor zuerst ' + next.name);
+  }
+
+  function amorAlreadyLinked(state) {
+    return (state.players || []).some(function (p) { return p.role === 'amor' && p.amorLinked; });
+  }
+
+  function potentialRoleCount(state, role) {
+    if (role === 'werwolf' && state.rolePool) {
+      if (isInt(state.wolfMax)) return state.wolfMax;
+      return (state.counts && state.counts.werwolf) || 0;
+    }
+    return (state.counts && state.counts[role]) || 0;
+  }
+
+  function buildNarratorCalls(state) {
+    var calls = [];
+    NARRATOR_CALL_ORDER.forEach(function (role) {
+      var slots = potentialRoleCount(state, role);
+      var holders = state.players.filter(function (p) { return p.role === role; });
+      var i;
+      for (i = 0; i < slots; i++) {
+        var holder = holders[i] || null;
+        calls.push({ role: role, playerId: holder ? holder.id : null, slot: i });
+      }
+      for (i = slots; i < holders.length; i++) {
+        if (!holders[i].alive) continue;
+        calls.push({ role: role, playerId: holders[i].id, slot: i, extra: true });
+      }
+    });
+    return calls;
+  }
+
+  function narratorWakeText(role) {
+    return roleName(role) + ', wach auf.';
+  }
+
+  function narratorCallQuiet(state, call) {
+    if (!call || call.playerId == null) return { quiet: true, reason: 'discarded' };
+    var player = playerById(state, call.playerId);
+    if (!player || !player.alive) return { quiet: true, reason: 'dead' };
+    if (player.role !== call.role) return { quiet: true, reason: 'gone' };
+    if (state.nightDone && state.nightDone.indexOf(player.id) >= 0) return { quiet: true, reason: 'done' };
+    return { quiet: false, reason: '' };
+  }
+
+  function narratorScript(state) {
+    var calls = state.narratorCalls || buildNarratorCalls(state);
+    return calls.map(function (call) {
+      var quiet = narratorCallQuiet(state, call);
+      return {
+        role: call.role,
+        playerId: call.playerId,
+        slot: call.slot,
+        quiet: quiet.quiet,
+        reason: quiet.reason,
+        wake: narratorWakeText(call.role)
+      };
+    });
+  }
+
+  function openNarratorSheet(state) {
+    state.narratorCalls = buildNarratorCalls(state);
+    state.narratorIndex = 0;
+    state.narratorQuiet = false;
+    state.narratorReason = '';
+    state.narratorResume = null;
+    state.sheetBack = null;
+    state.step = 'sheet';
+    state.activeId = null;
+    state.actorId = null;
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    note(state, 'Erzähler ' + state.narratorCalls.map(function (call) { return call.role; }).join(' '));
+  }
+
+  function openNarratorCall(state) {
+    if (!state.narratorCalls || state.narratorIndex >= state.narratorCalls.length) {
+      state.narratorQuiet = false;
+      endPass(state);
+      return;
+    }
+    var call = state.narratorCalls[state.narratorIndex];
+    var quiet = narratorCallQuiet(state, call);
+    state.narratorQuiet = quiet.quiet;
+    state.narratorReason = quiet.reason;
+    state.selection = [];
+    state.error = '';
+    state.prompts = [];
+    state.promptIndex = 0;
+    if (quiet.quiet) {
+      state.step = 'call';
+      state.activeId = null;
+      state.actorId = null;
+      note(state, 'Erzähler still ' + call.role + ' ' + quiet.reason);
+      return;
+    }
+    var player = playerById(state, call.playerId);
+    state.activeId = player.id;
+    state.actorId = player.id;
+    state.step = 'show';
+    var resume = state.narratorResume;
+    if (resume && resume.playerId === player.id) {
+      state.prompts = resume.prompts || [];
+      state.promptIndex = resume.promptIndex || 0;
+      state.selection = resume.selection || [];
+      state.narratorResume = null;
+      note(state, 'Erzähler setzt fort ' + call.role + ' ' + player.name);
+      return;
+    }
+    state.prompts = buildNightPrompts(state, player);
+    note(state, 'Erzähler ruft ' + call.role + ' ' + player.name);
+  }
+
+  function nightPartial(state) {
+    return !!(state.screen === 'night' && state.step === 'show' && (state.promptIndex || 0) > 0
+      && state.activeId != null && state.nightDone && state.nightDone.indexOf(state.activeId) < 0);
+  }
+
+  function enterNarratorMode(state) {
+    if (state.screen === 'vote' && state.step === 'ready') {
+      openTurn(state);
+      return;
+    }
+    if (state.screen === 'hunter' && state.step === 'ready') {
+      state.step = 'show';
+      state.selection = state.selection || [];
+      return;
+    }
+    if (state.screen !== 'night') return;
+    var resume = nightPartial(state) ? {
+      playerId: state.activeId,
+      prompts: state.prompts,
+      promptIndex: state.promptIndex || 0,
+      selection: (state.selection || []).slice()
+    } : null;
+    state.narratorCalls = buildNarratorCalls(state);
+    state.narratorResume = resume;
+    state.narratorIndex = 0;
+    state.narratorQuiet = false;
+    state.narratorReason = '';
+    state.sheetBack = null;
+    state.activeId = null;
+    state.actorId = null;
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    state.step = 'sheet';
+    state.error = '';
+    note(state, 'Erzähler übernimmt');
+  }
+
+  function leaveNarratorMode(state) {
+    var partial = nightPartial(state);
+    state.narratorResume = null;
+    state.narratorQuiet = false;
+    state.narratorReason = '';
+    state.sheetBack = null;
+    state.error = '';
+    if (state.screen === 'night') {
+      if (!partial) {
+        state.step = 'list';
+        state.activeId = null;
+        state.actorId = null;
+        state.prompts = [];
+        state.promptIndex = 0;
+        state.selection = [];
+      }
+      note(state, 'Handy geht wieder herum');
+      return;
+    }
+    if ((state.screen === 'vote' || state.screen === 'hunter') && (state.step === 'sheet' || state.step === 'call')) {
+      state.step = 'list';
+    }
+  }
+
+  function ackQuietCall(state) {
+    var call = state.narratorCalls && state.narratorCalls[state.narratorIndex];
+    var player = call && call.playerId != null ? playerById(state, call.playerId) : null;
+    if (player && player.notice && player.notice.night === state.nightNumber) player.notice = null;
+    if (player) {
+      var sig = loveSignature(state, player.id);
+      if (sig && !state.seenLove[player.id]) state.seenLove[player.id] = sig;
+    }
+    state.narratorIndex += 1;
+    openNarratorCall(state);
+  }
+
+  function finishNarratorTurn(state) {
+    var id = state.activeId;
+    if (id != null && state.nightDone.indexOf(id) < 0) state.nightDone.push(id);
+    state.activeId = null;
+    state.actorId = null;
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    state.error = '';
+    state.narratorIndex += 1;
+    openNarratorCall(state);
+  }
+
+  function narratorNightSend(state, action) {
+    if (state.step === 'sheet') {
+      if (action.type !== 'ack' && action.type !== 'narrator-begin') return;
+      if (state.sheetBack) {
+        state.step = state.sheetBack;
+        state.sheetBack = null;
+        state.error = '';
+        return;
+      }
+      openNarratorCall(state);
+      return;
+    }
+    if (action.type === 'narrator-sheet') {
+      if (state.step === 'show' && (state.promptIndex || 0) > 0) {
+        state.error = 'Die Aktion hat schon angefangen.';
+        return;
+      }
+      state.sheetBack = state.step === 'show' ? 'show' : 'call';
+      state.step = 'sheet';
+      state.error = '';
+      return;
+    }
+    if (state.step === 'call') {
+      if (action.type === 'ack' || action.type === 'narrator-next') ackQuietCall(state);
+      return;
+    }
+    if (state.step === 'show' && action.type === 'back') {
+      if ((state.promptIndex || 0) > 0) {
+        state.error = 'Die Aktion hat schon angefangen.';
+        return;
+      }
+      state.selection = [];
+      state.error = '';
+      note(state, 'Erzähler Zug zurück');
+      return;
+    }
+    if (state.step === 'show') handleShowAction(state, action);
   }
 
   function currentId(state) {
@@ -848,6 +1168,7 @@
   }
 
   function passOneAction(state, player) {
+    if (amorLinksTonight(state, player)) return { kind: 'amor', target: 'person', forced: true };
     if (player.role === 'nutte') return { kind: 'nutte', target: 'house' };
     if (player.role === 'nachahmerin' && player.nachLeft > 0) return { kind: 'copy', target: 'person', depth: 0 };
     if (player.role === 'waschbaer' && !player.stealUsed) return { kind: 'steal', target: 'person', forced: false };
@@ -970,6 +1291,10 @@
       endPass(state);
       return;
     }
+    if (nightWaitsForAmor(state)) {
+      openAmorFirst(state);
+      return;
+    }
     state.step = 'list';
   }
 
@@ -1049,7 +1374,7 @@
     var lines = [];
     if (!state.obit.length) lines.push('Niemand ist in der Nacht gestorben.');
     state.obit.forEach(function (row) {
-      lines.push(row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').');
+      lines.push(deathLine(state, row));
     });
     state.revived.forEach(function (row) {
       lines.push(row.name + ' ist wieder im Dorf.');
@@ -1085,6 +1410,13 @@
     state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'apply-vote' };
     setScreen(state, 'announce');
     note(state, 'Verurteilt ' + target.name);
+  }
+
+  function deathLine(state, row) {
+    if (state && state.showWolfAction) {
+      return row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').';
+    }
+    return row.name + ' ist gestorben.';
   }
 
   function tallyLines(state, scores) {
@@ -1123,11 +1455,9 @@
     var win = checkWin(state);
     var extra = state.obit.filter(function (row) { return row.cause !== 'abstimmung'; });
     if (extra.length || win) {
-      var lines = state.obit.map(function (row) {
-        return row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').';
-      });
+      var lines = state.obit.map(function (row) { return deathLine(state, row); });
       state.announce = {
-        title: 'Nach der Abstimmung',
+        title: state.showWolfAction ? 'Nach der Abstimmung' : 'Am Tag',
         lines: lines,
         button: win ? 'Ergebnis' : 'Nacht beginnt',
         then: win ? 'end' : 'night'
@@ -1140,12 +1470,10 @@
 
   function finishDuelAftermath(state) {
     var win = checkWin(state);
-    var lines = state.obit.map(function (row) {
-      return row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').';
-    });
-    if (!lines.length) lines.push('Das Duell endet ohne Toten.');
+    var lines = state.obit.map(function (row) { return deathLine(state, row); });
+    if (!lines.length) lines.push(state.showWolfAction ? 'Das Duell endet ohne Toten.' : 'Niemand ist gestorben.');
     state.announce = {
-      title: 'Duell vorbei',
+      title: state.showWolfAction ? 'Duell vorbei' : 'Am Tag',
       lines: lines,
       button: win ? 'Ergebnis' : 'Zurück zur Diskussion',
       then: win ? 'end' : 'discuss'
@@ -1182,7 +1510,8 @@
     state.selection = [];
     state.error = '';
     if (state.promptIndex >= state.prompts.length) {
-      if (state.screen === 'night') finishNightActor(state);
+      if (state.screen === 'night' && state.selfTell) finishNarratorTurn(state);
+      else if (state.screen === 'night') finishNightActor(state);
       else if (state.screen === 'vote') finishVoteActor(state);
       else nextPlayer(state);
     }
@@ -1332,6 +1661,11 @@
       if (pair[0] === pair[1]) return 'Zwei verschiedene Personen.';
       if (!livingTarget(state, pair[0]) || !livingTarget(state, pair[1])) return 'Beide müssen leben.';
       addLink(state, pair[0], pair[1]);
+      if (player.role === 'amor') {
+        player.amorLinked = true;
+        player.amorPair = pair.slice();
+        if (!unlinkedAmors(state).length) state.forceAmorNight = false;
+      }
       if (pair.indexOf(player.id) >= 0) return [{ kind: 'love' }];
       return [];
     }
@@ -1511,6 +1845,7 @@
 
   function keepRoster(state, action, screenBefore, actorBefore) {
     if (!state || (screenBefore !== 'night' && screenBefore !== 'vote')) return;
+    if (state.selfTell && screenBefore === 'night') return;
     if (state.screen !== screenBefore) return;
     if (action.type === 'night-pick' || action.type === 'vote-pick' || action.type === 'go' || action.type === 'back') return;
     var done = screenBefore === 'night' ? state.nightDone : state.voteDone;
@@ -1570,6 +1905,53 @@
     if (action.type === 'toggle-seer') {
       state.seerExact = !state.seerExact;
       state.error = '';
+      return;
+    }
+    if (action.type === 'toggle-wolf-action') {
+      state.showWolfAction = !state.showWolfAction;
+      if (state.config) state.config.showWolfAction = !!state.showWolfAction;
+      state.error = '';
+      note(state, 'Werwolf-Aktion ' + (state.showWolfAction ? 'an' : 'aus'));
+      return;
+    }
+    if (action.type === 'toggle-quick-amor') {
+      if (amorAlreadyLinked(state)) {
+        state.error = 'Amor hat schon verbunden.';
+        note(state, 'Quick Amor bleibt');
+        return;
+      }
+      var amorPrompt = state.step === 'show' ? currentPrompt(state) : null;
+      if (state.screen === 'night' && amorPrompt && amorPrompt.kind === 'amor' && (state.promptIndex || 0) > 0) {
+        state.error = 'Die Aktion hat schon angefangen.';
+        return;
+      }
+      state.quickAmor = state.quickAmor === false;
+      if (state.config) state.config.quickAmor = state.quickAmor !== false;
+      state.forceAmorNight = false;
+      state.error = '';
+      if (state.screen === 'reveal' && state.step === 'link' && state.quickAmor === false) {
+        state.step = 'show';
+        state.selection = [];
+      } else if (state.screen === 'reveal' && state.step === 'show' && state.quickAmor !== false) {
+        var showing = playerById(state, state.activeId);
+        if (showing && showing.role === 'amor' && !showing.amorLinked) {
+          state.step = 'link';
+          state.selection = [];
+        }
+      } else if (state.screen === 'night' && state.nightNumber === 1 && unlinkedAmors(state).length) {
+        if (state.quickAmor !== false) state.forceAmorNight = true;
+        if (!state.selfTell && (state.step === 'list' || state.step === 'ready')) openAmorFirst(state);
+      }
+      note(state, 'Quick Amor ' + (state.quickAmor === false ? 'aus' : 'an'));
+      return;
+    }
+    if (action.type === 'toggle-self-tell') {
+      state.selfTell = !state.selfTell;
+      if (state.config) state.config.selfTell = !!state.selfTell;
+      state.error = '';
+      if (state.selfTell) enterNarratorMode(state);
+      else leaveNarratorMode(state);
+      note(state, 'Wir erzählen selber ' + (state.selfTell ? 'an' : 'aus'));
       return;
     }
     if (action.type === 'toggle-pool') {
@@ -1635,6 +2017,11 @@
     lobby.players = (state.players || []).map(function (p) { return { id: p.id, name: p.name }; });
     lobby.nextId = state.nextId || (lobby.players.length + 1);
     lobby.log = state.log || [];
+    lobby.selfTell = !!state.selfTell;
+    lobby.showWolfAction = !!state.showWolfAction;
+    lobby.quickAmor = state.quickAmor !== false;
+    lobby.seerExact = !!state.seerExact;
+    lobby.rolePool = state.rolePool !== false;
     return lobby;
   }
 
@@ -1652,7 +2039,7 @@
 
   function revealDone(state, player) {
     if (!player || !state.revealed || !state.revealed[player.id]) return false;
-    if (player.role === 'amor' && !player.amorLinked) return false;
+    if (state.quickAmor !== false && player.role === 'amor' && !player.amorLinked) return false;
     return true;
   }
 
@@ -1708,7 +2095,7 @@
       state.selection = [];
       state.confirmUndoDeal = false;
       state.error = '';
-      state.step = person.role === 'amor' && !person.amorLinked ? 'link' : 'show';
+      state.step = state.quickAmor !== false && person.role === 'amor' && !person.amorLinked ? 'link' : 'show';
       note(state, 'Rolle zeigen ' + person.name);
       return;
     }
@@ -1826,10 +2213,15 @@
   }
 
   function turnSend(state, action) {
+    if (state.selfTell && state.screen === 'night') return narratorNightSend(state, action);
     if (state.screen === 'night' && state.step === 'list') {
       if (action.type !== 'night-pick') return;
       var picked = playerById(state, action.id);
       if (!picked || !picked.alive) return;
+      if (nightWaitsForAmor(state) && picked.role !== 'amor') {
+        state.error = 'Zuerst ist Amor dran.';
+        return;
+      }
       if (state.nightDone.indexOf(picked.id) >= 0) {
         state.error = 'Diese Person war diese Nacht schon dran.';
         return;
@@ -1855,6 +2247,11 @@
       }
       state.activeId = voter.id;
       state.actorId = voter.id;
+      if (state.selfTell) {
+        openTurn(state);
+        note(state, 'Abstimmungswahl ' + voter.name);
+        return;
+      }
       state.step = 'ready';
       state.prompts = [];
       state.promptIndex = 0;
@@ -1916,9 +2313,14 @@
       state.activeId = pickedHunter.id;
       state.actorId = pickedHunter.id;
       state.hunterId = pickedHunter.id;
-      state.step = 'ready';
       state.selection = [];
       state.error = '';
+      if (state.selfTell) {
+        state.step = 'show';
+        note(state, 'Jäger schießt ' + pickedHunter.name);
+        return;
+      }
+      state.step = 'ready';
       return;
     }
     if (state.step === 'ready') {
@@ -2139,7 +2541,16 @@
       mayorId: state.mayorId,
       day: state.day,
       nightNumber: state.nightNumber,
-      pass: state.pass
+      pass: state.pass,
+      selfTell: !!state.selfTell,
+      narratorQuiet: !!state.narratorQuiet,
+      narratorIndex: state.narratorIndex || 0,
+      narratorRole: (state.step === 'call' || state.step === 'show') && state.narratorCalls && state.narratorCalls[state.narratorIndex]
+        ? state.narratorCalls[state.narratorIndex].role
+        : null,
+      wake: (state.step === 'call' || state.step === 'show') && state.narratorCalls && state.narratorCalls[state.narratorIndex]
+        ? narratorWakeText(state.narratorCalls[state.narratorIndex].role)
+        : ''
     };
   }
 
@@ -2228,6 +2639,11 @@
     APP_VERSION: APP_VERSION,
     ROLE_NAMES: ROLE_NAMES,
     ROLE_ORDER: ROLE_ORDER,
+    NARRATOR_CALL_ORDER: NARRATOR_CALL_ORDER,
+    potentialRoleCount: potentialRoleCount,
+    buildNarratorCalls: buildNarratorCalls,
+    narratorScript: narratorScript,
+    narratorWakeText: narratorWakeText,
     CAUSE_LABEL: CAUSE_LABEL,
     WIN_TEXT: WIN_TEXT,
     teamOfRole: teamOfRole,
@@ -2263,6 +2679,7 @@
     everyoneRevealed: everyoneRevealed,
     revealReady: revealReady,
     revealDone: revealDone,
+    nightWaitsForAmor: nightWaitsForAmor,
     pendingNames: pendingNames,
     currentConfig: currentConfig,
     adoptSaved: adoptSaved,

@@ -214,6 +214,9 @@ async function reachWolf(page) {
 async function checkSetupPersists(browser, base) {
   const page = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
   await page.goto(base);
+  const tell = page.getByRole('button', { name: /Wir erzählen selber/ });
+  assert.ok((await tell.innerText()).includes('aus'));
+  await tell.click();
   for (const name of ['Anna', 'Bea', 'Chris', 'Dora']) {
     await page.fill('#name-input', name);
     await page.locator('#name-form button').click();
@@ -229,16 +232,31 @@ async function checkSetupPersists(browser, base) {
   const seer = page.getByRole('button', { name: /Seherin sieht genaue Rolle/ });
   if ((await seer.innerText()).includes('aus')) await seer.click();
   assert.ok((await seer.innerText()).includes('an'));
+  const wolfAct = page.getByRole('button', { name: /Werwolf-Aktion anzeigen/ });
+  assert.ok((await wolfAct.innerText()).includes('aus'));
+  await wolfAct.click();
+  assert.ok((await wolfAct.innerText()).includes('an'));
+  const quick = page.getByRole('button', { name: /Quick Amor/ });
+  assert.ok((await quick.innerText()).includes('an'));
+  await quick.click();
+  assert.ok((await quick.innerText()).includes('aus'));
   await page.getByRole('button', { name: 'Zurück zu den Namen' }).click();
   await page.reload();
+  assert.ok((await page.getByRole('button', { name: /Wir erzählen selber/ }).innerText()).includes('an'));
   await page.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   const again = page.getByRole('button', { name: /Seherin sieht genaue Rolle/ });
   assert.ok((await again.innerText()).includes('an'));
+  assert.ok((await page.getByRole('button', { name: /Werwolf-Aktion anzeigen/ }).innerText()).includes('an'));
+  assert.ok((await page.getByRole('button', { name: /Quick Amor/ }).innerText()).includes('aus'));
   assert.ok((await page.getByRole('button', { name: /Mehr Rollen als Spieler/ }).innerText()).includes('aus'));
   const wolves = Number((await page.locator('.stepper', { hasText: 'Werwolf' }).first().locator('strong').innerText()).trim());
   assert.strictEqual(wolves, 2);
   const stored = await page.evaluate(function () { return localStorage.getItem('werwolf.setup.v1'); });
   assert.ok(stored && stored.indexOf('"seerExact":true') >= 0, stored);
+  assert.ok(stored.indexOf('"showWolfAction":true') >= 0, stored);
+  assert.ok(stored.indexOf('"quickAmor":false') >= 0, stored);
+  assert.ok(stored.indexOf('"selfTell":true') >= 0, stored);
+  assert.ok(stored.indexOf('"rolePool":false') >= 0, stored);
   assert.ok(stored.indexOf('"nutte":1') >= 0, stored);
   await page.close();
 }

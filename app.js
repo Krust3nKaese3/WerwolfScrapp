@@ -92,7 +92,8 @@
 
   function setupActions(type) {
     return type === 'set-count' || type === 'set-nach' || type === 'set-heals' || type === 'set-wolf-min' ||
-      type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-pool' || type === 'suggest' ||
+      type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-quick-amor' ||
+      type === 'toggle-pool' || type === 'suggest' ||
       type === 'undo-deal' || type === 'to-setup';
   }
 
@@ -105,9 +106,22 @@
       healPotions: state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
+      showWolfAction: !!state.showWolfAction,
+      quickAmor: state.quickAmor !== false,
       wolfMin: state.wolfMin,
-      wolfMax: state.wolfMax
+      wolfMax: state.wolfMax,
+      selfTell: !!state.selfTell
     };
+  }
+
+  function rememberModes() {
+    if (!savedSetup || typeof savedSetup !== 'object') savedSetup = { v: 1 };
+    if (!state) return;
+    savedSetup.selfTell = !!state.selfTell;
+    savedSetup.showWolfAction = !!state.showWolfAction;
+    savedSetup.quickAmor = state.quickAmor !== false;
+    if (state.rolePool != null) savedSetup.rolePool = !!state.rolePool;
+    if (state.seerExact != null) savedSetup.seerExact = !!state.seerExact;
   }
 
   function applySavedSetup() {
@@ -115,10 +129,13 @@
     if (savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));
     if (savedSetup.nachUses != null) state.nachUses = savedSetup.nachUses;
     if (savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
-    state.rolePool = !!savedSetup.rolePool;
-    state.seerExact = !!savedSetup.seerExact;
+    if ('rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
+    if ('seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
+    state.showWolfAction = savedSetup.showWolfAction === true;
+    if ('quickAmor' in savedSetup) state.quickAmor = savedSetup.quickAmor !== false;
     if (savedSetup.wolfMin != null) state.wolfMin = savedSetup.wolfMin;
     if (savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
+    if ('selfTell' in savedSetup) state.selfTell = !!savedSetup.selfTell;
     state.error = '';
   }
 
@@ -146,6 +163,7 @@
   }
 
   var rendering = false;
+  var quietTimer = null;
 
   function act(action) {
     if (rendering) return;
@@ -163,6 +181,7 @@
     rendering = true;
     try {
       W.send(state, action);
+      if (action.type === 'toggle-self-tell' || action.type === 'toggle-wolf-action' || action.type === 'toggle-quick-amor' || action.type === 'toggle-seer' || action.type === 'toggle-pool') rememberModes();
       if (action.type === 'to-setup') applySavedSetup();
       if (state.screen === 'setup' && (action.type === 'to-setup' || action.type === 'undo-deal' || setupActions(action.type))) {
         rememberSetup();
@@ -258,7 +277,9 @@
       seherin: state.seerExact
         ? 'Nachts siehst du die genaue Rolle einer Person.'
         : 'Nachts siehst du nur Team Dorfbewohner oder Böse.',
-      amor: 'Beim Aufdecken verbindest du zwei Personen, dich selbst eingeschlossen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.',
+      amor: state.quickAmor === false
+        ? 'In Nacht 1 verbindest du zwei Personen, dich selbst eingeschlossen, bevor die Wölfe wählen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.'
+        : 'Beim Aufdecken verbindest du zwei Personen, dich selbst eingeschlossen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.',
       jaeger: 'Wenn du stirbst, schießt du auf eine Person.',
       waschbaer: 'Einmal darfst du die Rolle einer lebenden Person stehlen. Hat sie heute noch nicht gehandelt, gilt die Rolle sofort, sonst ab der nächsten Nacht.',
       nachahmerin: 'Du kannst ' + uses + ' Mal die Fähigkeit einer anderen Person nachahmen und musst sie sofort einsetzen.',
@@ -305,10 +326,15 @@
         '</span><button type="button" class="icon-btn" data-act="remove-name" data-id="' + p.id + '" aria-label="' +
         esc(p.name) + ' entfernen">✕</button></div>';
     }).join('');
+    var telling = !!state.selfTell;
     return header('Ein Handy für die Runde', 'Werwolf') +
       hero('🌙', 'Nacht') +
       '<div class="stack">' +
       '<p class="lead">Namen nacheinander eingeben, im Uhrzeigersinn. Diese Reihenfolge ist die Sitzordnung.</p>' +
+      '<button type="button" class="btn secondary" data-act="toggle-self-tell" aria-pressed="' + (telling ? 'true' : 'false') + '">Wir erzählen selber: ' + (telling ? 'an' : 'aus') + '</button>' +
+      '<p class="hint">' + (telling
+        ? 'An: Jede Person sieht zuerst nur die eigene Rolle. Danach behält der Erzähler das Handy und tippt die Aktionen ein. Der Erzähler steht nicht in der Liste und hat keine Rolle.'
+        : 'Aus: Das Handy geht die ganze Partie herum, so wie bisher.') + '</p>' +
       (bridgeStorage() ? '<p class="hint">Namen und ein laufendes Spiel bleiben in OpenScr gespeichert, auch nach dem Schließen.</p>'
         : '<p class="hint">Im Browser bleibt der Stand in diesem Tab. In OpenScr übersteht er das Schließen der App.</p>') +
       errorHtml() +
@@ -374,6 +400,14 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       '<div class="stack"><p class="lead">' + lead + '</p>' +
       '<button type="button" class="btn secondary" data-act="toggle-pool" aria-pressed="' + (poolOn ? 'true' : 'false') + '">Mehr Rollen als Spieler: ' + (poolOn ? 'an' : 'aus') + '</button>' +
       '<button type="button" class="btn secondary" data-act="toggle-seer" aria-pressed="' + (state.seerExact ? 'true' : 'false') + '">Seherin sieht genaue Rolle: ' + (state.seerExact ? 'an' : 'aus') + '</button>' +
+      '<button type="button" class="btn secondary" data-act="toggle-wolf-action" aria-pressed="' + (state.showWolfAction ? 'true' : 'false') + '">Werwolf-Aktion anzeigen: ' + (state.showWolfAction ? 'an' : 'aus') + '</button>' +
+      '<p class="hint">' + (state.showWolfAction
+        ? 'An: Am Morgen und am Tag steht dazu, woran jemand gestorben ist.'
+        : 'Aus: Am Morgen und am Tag steht nur, wer gestorben ist. Nicht, ob Werwolf, Hexe, Liebe, Gastgeberin oder Duell.') + '</p>' +
+      '<button type="button" class="btn secondary" data-act="toggle-quick-amor" aria-pressed="' + (state.quickAmor !== false ? 'true' : 'false') + '">Quick Amor: ' + (state.quickAmor !== false ? 'an' : 'aus') + '</button>' +
+      '<p class="hint">' + (state.quickAmor !== false
+        ? 'An: Amor verbindet beim Aufdecken. Spiel starten wartet auf das Paar.'
+        : 'Aus: Amor verbindet in Nacht 1, als erste Rolle, vor den Wölfen.') + '</p>' +
       (problem ? '<div class="banner error">' + esc(problem) + '</div>' : '') +
       '<div class="card stack">' + rows +
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('nachahmerin')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
@@ -454,7 +488,10 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     return header('Rollen', 'Wer ist dran?') +
       hero('🎭', 'Rollen aufdecken') +
       '<div class="stack">' + errorHtml() +
-      '<p class="lead">Jede Person tippt den eigenen Namen und sieht nur die eigene Rolle. Der Name wird grau, wenn sie fertig ist, und bleibt antippbar. Amor ist erst fertig, wenn er ein Paar verbunden hat. Spiel starten geht erst dann.</p>' +
+      '<p class="lead">' + (state.quickAmor !== false
+        ? 'Jede Person tippt den eigenen Namen und sieht nur die eigene Rolle. Der Name wird grau, wenn sie fertig ist, und bleibt antippbar. Amor ist erst fertig, wenn er ein Paar verbunden hat. Spiel starten geht erst dann.'
+        : 'Jede Person tippt den eigenen Namen und sieht nur die eigene Rolle. Der Name wird grau, wenn sie fertig ist, und bleibt antippbar. Amor verbindet das Paar erst in Nacht 1, vor den Wölfen.') + '</p>' +
+      (state.selfTell ? '<p class="hint">Danach behält nur der Erzähler das Handy. Er spielt nicht mit.</p>' : '') +
       '<div class="stack">' + names + '</div>' +
       (startReady ? '' : '<p class="hint">Noch nicht fertig: ' + esc(pending.join(', ')) + '</p>') +
       '<button type="button" class="btn" data-act="start-game"' + (startReady ? '' : ' disabled') + '>Spiel starten</button>' +
@@ -469,11 +506,14 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       return '<div class="player' + (p.alive ? '' : ' dead') + '"><span class="life" role="img" aria-label="' + (p.alive ? 'lebt' : 'tot') + '">' + (p.alive ? '❤️' : '💀') + '</span><span><span class="player-name">' + (index + 1) + '. ' + esc(p.name) +
         '</span>' + (badges.length ? '<span class="sub">' + esc(badges.join(' · ')) + '</span>' : '') + '</span></div>';
     }).join('');
+    var telling = !!state.selfTell;
     return header(phaseEyebrow(), 'Diskussion') +
       hero('☀️', 'Tag') +
       '<div class="stack">' + mayorHtml() +
-      '<p class="lead">Redet offen. Das Duell geht vor der Abstimmung, einmal pro Russe. Die Abstimmung ist geheim.</p>' +
-      '<div class="stack">' + list + '</div>' +
+      '<p class="lead">' + (telling
+        ? 'Du behältst das Handy. Trag Duell und Abstimmung ein. Die App wertet nach den bisherigen Regeln aus, inklusive Bürgermeisterstimme, Politiker und Jäger.'
+        : 'Redet offen. Das Duell geht vor der Abstimmung, einmal pro Russe. Die Abstimmung ist geheim.') + '</p>' +
+      (telling ? '<h2>Alle Rollen</h2><div class="stack">' + roleSheetRows() + '</div>' : '<div class="stack">' + list + '</div>') +
       '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' +
       '<button type="button" class="btn" data-act="to-vote">Zur Abstimmung</button>' +
       abortLink() + '</div>';
@@ -488,7 +528,82 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button></div>';
   }
 
+  function roleSheetRows() {
+    return state.players.map(function (p, index) {
+      var badges = [];
+      if (p.id === state.mayorId && p.alive) badges.push('Bürgermeister');
+      badges.push(p.alive ? 'lebt' : 'tot');
+      return '<div class="player' + (p.alive ? '' : ' dead') + '"><span class="life" role="img" aria-label="' + (p.alive ? 'lebt' : 'tot') + '">' +
+        (p.alive ? '❤️' : '💀') + '</span><span><span class="player-name">' + (index + 1) + '. ' + esc(p.name) +
+        '</span><span class="sub">' + esc(badges.join(' · ')) + '</span></span><strong>' +
+        roleIcon(p.role) + ' ' + esc(W.roleName(p.role)) + '</strong></div>';
+    }).join('');
+  }
+
+  function narratorCall() {
+    var calls = state.narratorCalls || [];
+    return calls[state.narratorIndex] || null;
+  }
+
+  function wakeLine(role) {
+    return '<p class="call-line">' + esc(W.narratorWakeText(role)) + '</p>';
+  }
+
+  function renderNarratorSheet() {
+    var back = !!state.sheetBack;
+    return header(phaseEyebrow(), 'Alle Rollen') +
+      hero('📖', 'Rollen') +
+      '<div class="stack">' +
+      '<p class="lead">Nur der Erzähler sieht diese Liste. Name, Rolle, lebend oder tot.</p>' +
+      '<div class="stack">' + roleSheetRows() + '</div>' +
+      '<button type="button" class="btn" data-act="' + (back ? 'ack' : 'narrator-begin') + '">' +
+      (back ? 'Zurück zum Aufruf' : 'Nacht beginnen') + '</button>' +
+      abortLink() + '</div>';
+  }
+
+  function renderNarratorCall() {
+    var call = narratorCall();
+    var role = call ? call.role : 'dorfbewohner';
+    var person = call && call.playerId != null ? player(call.playerId) : null;
+    var hint = 'Niemand handelt.';
+    if (state.narratorReason === 'done') hint = 'Niemand handelt. Schon erledigt.';
+    else if (person && person.alive && person.notice) hint = 'Niemand handelt. Die Rolle wurde gestohlen.';
+    return header(phaseEyebrow(), W.roleName(role)) +
+      hero(roleIcon(role), W.roleName(role)) +
+      '<section class="stage">' +
+      wakeLine(role) +
+      '<p class="quiet-note">' + esc(hint) + '</p>' +
+      '<button type="button" class="btn" data-act="ack" data-quiet="1" disabled>Weiter</button>' +
+      '<button type="button" class="btn secondary" data-act="narrator-sheet">Rollenliste</button>' +
+      '</section>';
+  }
+
+  function renderNarratorAction() {
+    var call = narratorCall();
+    var person = player(state.activeId);
+    if (!person) return renderNarratorCall();
+    var prompt = W.view(state).prompt;
+    if (!prompt) return renderNarratorCall();
+    if (prompt.kind === 'seer-result') {
+      return header(phaseEyebrow(), 'Seherin') + '<div class="stack">' + errorHtml() + promptHtml(person, prompt) + '</div>';
+    }
+    var back = (state.promptIndex || 0) === 0
+      ? '<button type="button" class="btn secondary" data-act="back">Zurück</button>' +
+        '<button type="button" class="btn secondary" data-act="narrator-sheet">Rollenliste</button>'
+      : '';
+    return header(phaseEyebrow(), W.roleName(person.role)) +
+      '<div class="stack">' + errorHtml() +
+      wakeLine(call ? call.role : person.role) +
+      '<p class="hint">Du tippst für ' + esc(person.name) + '.</p>' +
+      promptHtml(person, prompt) + back + '</div>';
+  }
+
   function renderTurn() {
+    if (state.selfTell && state.screen === 'night') {
+      if (state.step === 'sheet') return renderNarratorSheet();
+      if (state.step === 'call') return renderNarratorCall();
+      if (state.step === 'show') return renderNarratorAction();
+    }
     if (state.screen === 'night' && state.step === 'list') return renderNightList();
     if (state.screen === 'vote' && state.step === 'list') return renderVoteList();
     if ((state.screen === 'night' || state.screen === 'vote') && state.step === 'ready') return renderNightReady();
@@ -514,16 +629,20 @@ if (!(poolOn && role === 'werwolf')) sum += count;
 
   function renderNightList() {
     var done = state.nightDone || [];
+    var waits = W.nightWaitsForAmor(state);
     var names = W.living(state).map(function (p) {
       var finished = done.indexOf(p.id) >= 0;
+      var held = waits && p.role !== 'amor';
       return '<button type="button" class="choice' + (finished ? ' done' : '') + '" data-act="night-pick" data-id="' + p.id + '"' +
-        (finished ? ' disabled' : '') + '><span><span class="who">' + esc(p.name) + '</span>' +
+        (finished || held ? ' disabled' : '') + '><span><span class="who">' + esc(p.name) + '</span>' +
         '<span class="meta">' + (finished ? 'schon dran' : 'tippen, wenn du dran bist') + '</span></span></button>';
     }).join('');
     return header(phaseEyebrow(), 'Wer ist wach?') +
       hero('🌙', 'Nacht') +
       '<div class="stack">' + errorHtml() +
-      '<p class="lead">Jede lebende Person tippt den eigenen Namen. Die Reihenfolge ist egal. Wer fertig ist, wird grau und kann diese Nacht nicht noch einmal.</p>' +
+      '<p class="lead">' + (waits
+        ? 'Zuerst tippt Amor. Zurück vor dem Bestätigen verbraucht nichts. Danach ist die Reihenfolge egal, die Wölfe erst nach Amor.'
+        : 'Jede lebende Person tippt den eigenen Namen. Die Reihenfolge ist egal. Wer fertig ist, wird grau und kann diese Nacht nicht noch einmal.') + '</p>' +
       '<div class="stack">' + names + '</div>' + abortLink() + '</div>';
   }
 
@@ -538,7 +657,9 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     return header(phaseEyebrow(), 'Wer stimmt ab?') +
       hero('🗳️', 'Abstimmung') +
       '<div class="stack">' + errorHtml() +
-      '<p class="lead">Jede lebende Person tippt den eigenen Namen und stimmt geheim ab. Danach ist der Name grau. Gezählt wird, wenn alle abgestimmt haben. Der Bürgermeister zählt 1,5.</p>' +
+      '<p class="lead">' + (state.selfTell
+        ? 'Tippe nacheinander jede lebende Person und danach ihre Stimme. Die Reihenfolge ist egal. Zurück vor dem Bestätigen verbraucht die Stimme nicht. Der Bürgermeister zählt 1,5.'
+        : 'Jede lebende Person tippt den eigenen Namen und stimmt geheim ab. Danach ist der Name grau. Gezählt wird, wenn alle abgestimmt haben. Der Bürgermeister zählt 1,5.') + '</p>' +
       '<div class="stack">' + names + '</div>' + abortLink() + '</div>';
   }
 
@@ -585,8 +706,10 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         ? roleIcon(prompt.role) + ' ' + esc(seen ? seen.name : '')
         : esc(seen ? seen.name : '');
       var detail = exact ? W.roleName(prompt.role) : (prompt.label || 'Team Dorfbewohner');
-      return hero('👁️', 'Seherin') + '<section class="stage card"><p class="eyebrow">Seherin</p><p class="big-role">' + headline + '</p>' +
-        '<p class="lead">ist ' + esc(detail) + '.</p>' +
+      var huge = state.selfTell ? ' seer-huge' : '';
+      var forSeer = state.selfTell ? '<p class="lead">Zeig das Ergebnis der Seherin, dann verdecken.</p>' : '';
+      return hero('👁️', 'Seherin') + '<section class="stage card"><p class="eyebrow">Seherin</p><p class="big-role' + huge + '">' + headline + '</p>' +
+        '<p class="lead">ist ' + esc(detail) + '.</p>' + forSeer +
         '<button type="button" class="btn" data-act="ack">Verdecken</button></section>';
     }
     return choiceBlock(person, prompt);
@@ -676,7 +799,9 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       return header('Jäger', 'Wer schießt?') +
         hero('🏹', 'Jäger') +
         '<div class="stack">' + errorHtml() +
-        '<p class="lead">Jeder Jäger, der schießen muss, tippt den eigenen Namen. Die Reihenfolge ist egal. Danach ist der Name grau.</p>' +
+        '<p class="lead">' + (state.selfTell
+          ? 'Tippe den Jäger, der schießt. Die Reihenfolge ist egal. Zurück vor dem Schuss verbraucht nichts.'
+          : 'Jeder Jäger, der schießen muss, tippt den eigenen Namen. Die Reihenfolge ist egal. Danach ist der Name grau.') + '</p>' +
         '<div class="stack">' + names + '</div></div>';
     }
     if (state.step === 'ready') {
@@ -710,7 +835,7 @@ if (!(poolOn && role === 'werwolf')) sum += count;
           '<span class="meta">Das bin ich</span></span></button>';
       }).join('');
       return header('Duell', 'Wer bist du?') + hero('🎲', 'Duell') + '<div class="stack">' + errorHtml() +
-        '<p class="lead">Tippe deinen Namen.</p>' +
+        '<p class="lead">' + (state.selfTell ? 'Tippe den Namen, der das Duell ansagt. Die Liste hat keine feste Reihenfolge.' : 'Tippe deinen Namen.') + '</p>' +
         '<div class="stack">' + people + '</div>' +
         '<button type="button" class="btn secondary" data-act="cancel">Zurück</button></div>';
     }
@@ -718,7 +843,9 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       var claim = player(duel.claimId);
       var claimName = claim ? claim.name : '';
       return header('Duell', claimName) + hero('🎲', 'Duell') + '<div class="stack">' + errorHtml() +
-        '<p class="lead">Nur ' + esc(claimName) + ' schaut jetzt hin.</p>' +
+        '<p class="lead">' + (state.selfTell
+          ? 'Du tippst für ' + esc(claimName) + '. Zurück verbraucht nichts.'
+          : 'Nur ' + esc(claimName) + ' schaut jetzt hin.') + '</p>' +
         '<button type="button" class="btn" data-act="confirm">Das bin ich</button>' +
         '<button type="button" class="btn secondary" data-act="back">Zurück</button></div>';
     }
@@ -825,6 +952,38 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     else if (state.screen === 'end') html = renderEnd();
     else html = renderLobby();
     app.innerHTML = html;
+    armQuiet(!!(state && state.selfTell && state.screen === 'night' && state.step === 'call' && state.narratorQuiet));
+    syncSettings();
+  }
+
+  function syncSettings() {
+    var tell = document.getElementById('set-tell');
+    var wolf = document.getElementById('set-wolf');
+    if (!tell || !wolf) return;
+    var amor = document.getElementById('set-amor');
+    var telling = !!(state && state.selfTell);
+    var showing = !!(state && state.showWolfAction);
+    var quick = !state || state.quickAmor !== false;
+    var linked = !!(state && state.players && state.players.some(function (p) { return p.role === 'amor' && p.amorLinked; }));
+    tell.textContent = 'Wir erzählen selber: ' + (telling ? 'an' : 'aus');
+    tell.setAttribute('aria-pressed', telling ? 'true' : 'false');
+    wolf.textContent = 'Werwolf-Aktion anzeigen: ' + (showing ? 'an' : 'aus');
+    wolf.setAttribute('aria-pressed', showing ? 'true' : 'false');
+    if (!amor) return;
+    amor.textContent = 'Quick Amor: ' + (quick ? 'an' : 'aus');
+    amor.setAttribute('aria-pressed', quick ? 'true' : 'false');
+    amor.disabled = linked;
+  }
+
+  function armQuiet(on) {
+    if (quietTimer) clearTimeout(quietTimer);
+    quietTimer = null;
+    if (!on) return;
+    quietTimer = setTimeout(function () {
+      quietTimer = null;
+      var btn = document.querySelector('#app [data-quiet="1"]');
+      if (btn) btn.disabled = false;
+    }, 800);
   }
 
   app.addEventListener('click', function (event) {
@@ -891,6 +1050,25 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     act({ type: 'add-name', name: input ? input.value : '' });
   });
 
+  var gearBtn = document.getElementById('gear-btn');
+  var settingsPanel = document.getElementById('settings-panel');
+  gearBtn.addEventListener('click', function () {
+    syncSettings();
+    settingsPanel.hidden = false;
+  });
+  document.getElementById('settings-close').addEventListener('click', function () {
+    settingsPanel.hidden = true;
+  });
+  document.getElementById('set-tell').addEventListener('click', function () {
+    act({ type: 'toggle-self-tell' });
+  });
+  document.getElementById('set-wolf').addEventListener('click', function () {
+    act({ type: 'toggle-wolf-action' });
+  });
+  document.getElementById('set-amor').addEventListener('click', function () {
+    act({ type: 'toggle-quick-amor' });
+  });
+
   var bugBtn = document.getElementById('bug-btn');
   var bugPanel = document.getElementById('bug-panel');
   var bugText = document.getElementById('bug-text');
@@ -952,6 +1130,13 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       state.players = savedLobby.players;
       state.nextId = savedLobby.nextId || (state.players.length + 1);
       state.log = savedLobby.log || [];
+    }
+    if (state && (state.screen === 'lobby' || state.screen === 'setup')) {
+      state.selfTell = !!(savedSetup && savedSetup.selfTell);
+      state.showWolfAction = !!(savedSetup && savedSetup.showWolfAction === true);
+      state.quickAmor = !savedSetup || savedSetup.quickAmor !== false;
+      if (savedSetup && 'seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
+      if (savedSetup && 'rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
     }
     if (state.screen === 'setup') rememberSetup();
     booting = false;
