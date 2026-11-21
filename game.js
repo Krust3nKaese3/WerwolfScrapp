@@ -882,7 +882,7 @@
     var player = playerById(state, call.playerId);
     if (!player || !player.alive) return { quiet: true, reason: 'dead' };
     if (player.role !== call.role) return { quiet: true, reason: 'gone' };
-    if (state.nightDone && state.nightDone.indexOf(player.id) >= 0) return { quiet: true, reason: 'gone' };
+    if (state.nightDone && state.nightDone.indexOf(player.id) >= 0) return { quiet: true, reason: 'done' };
     return { quiet: false, reason: '' };
   }
 
@@ -905,6 +905,8 @@
     state.narratorCalls = buildNarratorCalls(state);
     state.narratorIndex = 0;
     state.narratorQuiet = false;
+    state.narratorReason = '';
+    state.narratorResume = null;
     state.sheetBack = null;
     state.step = 'sheet';
     state.activeId = null;
@@ -924,6 +926,7 @@
     var call = state.narratorCalls[state.narratorIndex];
     var quiet = narratorCallQuiet(state, call);
     state.narratorQuiet = quiet.quiet;
+    state.narratorReason = quiet.reason;
     state.selection = [];
     state.error = '';
     state.prompts = [];
@@ -939,8 +942,79 @@
     state.activeId = player.id;
     state.actorId = player.id;
     state.step = 'show';
+    var resume = state.narratorResume;
+    if (resume && resume.playerId === player.id) {
+      state.prompts = resume.prompts || [];
+      state.promptIndex = resume.promptIndex || 0;
+      state.selection = resume.selection || [];
+      state.narratorResume = null;
+      note(state, 'Erzähler setzt fort ' + call.role + ' ' + player.name);
+      return;
+    }
     state.prompts = buildNightPrompts(state, player);
     note(state, 'Erzähler ruft ' + call.role + ' ' + player.name);
+  }
+
+  function nightPartial(state) {
+    return !!(state.screen === 'night' && state.step === 'show' && (state.promptIndex || 0) > 0
+      && state.activeId != null && state.nightDone && state.nightDone.indexOf(state.activeId) < 0);
+  }
+
+  function enterNarratorMode(state) {
+    if (state.screen === 'vote' && state.step === 'ready') {
+      openTurn(state);
+      return;
+    }
+    if (state.screen === 'hunter' && state.step === 'ready') {
+      state.step = 'show';
+      state.selection = state.selection || [];
+      return;
+    }
+    if (state.screen !== 'night') return;
+    var resume = nightPartial(state) ? {
+      playerId: state.activeId,
+      prompts: state.prompts,
+      promptIndex: state.promptIndex || 0,
+      selection: (state.selection || []).slice()
+    } : null;
+    state.narratorCalls = buildNarratorCalls(state);
+    state.narratorResume = resume;
+    state.narratorIndex = 0;
+    state.narratorQuiet = false;
+    state.narratorReason = '';
+    state.sheetBack = null;
+    state.activeId = null;
+    state.actorId = null;
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    state.step = 'sheet';
+    state.error = '';
+    note(state, 'Erzähler übernimmt');
+  }
+
+  function leaveNarratorMode(state) {
+    var partial = nightPartial(state);
+    state.narratorResume = null;
+    state.narratorQuiet = false;
+    state.narratorReason = '';
+    state.sheetBack = null;
+    state.error = '';
+    if (state.screen === 'night') {
+      if (!partial) {
+        state.step = 'list';
+        state.activeId = null;
+        state.actorId = null;
+        state.prompts = [];
+        state.promptIndex = 0;
+        state.selection = [];
+      }
+      note(state, 'Handy geht wieder herum');
+      return;
+    }
+    if ((state.screen === 'vote' || state.screen === 'hunter') && (state.step === 'sheet' || state.step === 'call')) {
+      state.step = 'list';
+    }
   }
 
   function ackQuietCall(state) {
@@ -1770,13 +1844,17 @@
     }
     if (action.type === 'toggle-wolf-action') {
       state.showWolfAction = !state.showWolfAction;
+      if (state.config) state.config.showWolfAction = !!state.showWolfAction;
       state.error = '';
       note(state, 'Werwolf-Aktion ' + (state.showWolfAction ? 'an' : 'aus'));
       return;
     }
     if (action.type === 'toggle-self-tell') {
       state.selfTell = !state.selfTell;
+      if (state.config) state.config.selfTell = !!state.selfTell;
       state.error = '';
+      if (state.selfTell) enterNarratorMode(state);
+      else leaveNarratorMode(state);
       note(state, 'Wir erzählen selber ' + (state.selfTell ? 'an' : 'aus'));
       return;
     }

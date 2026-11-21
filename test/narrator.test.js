@@ -332,6 +332,119 @@ test('Erzähler-Ansage verschweigt die Ursache, wenn die Werwolf-Aktion aus ist'
   assert.ok(shown.announce.lines.join(' ').indexOf('von den Werwölfen') >= 0, shown.announce.lines.join(' '));
 });
 
+test('Mitten in der Nacht wechseln, ohne Stand zu verlieren oder doppelt zu handeln', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.seherin = 2;
+  counts.dorfbewohner = 2;
+  const dealt = blankCounts();
+  dealt.werwolf = 1;
+  dealt.dorfbewohner = 3;
+  const state = make(['Wolf', 'Anna', 'Bert', 'Cem'], dealt, { selfTell: false, rolePool: false });
+  state.counts = counts;
+  state.rolePool = true;
+  state.wolfMin = 1;
+  state.wolfMax = 1;
+  setRoles(state, ['werwolf', 'seherin', 'dorfbewohner', 'dorfbewohner']);
+  W.beginNight(state);
+  W.send(state, { type: 'night-pick', id: 1 });
+  W.send(state, { type: 'go' });
+  W.send(state, { type: 'select', id: 2 });
+  W.send(state, { type: 'toggle-self-tell' });
+  W.send(state, { type: 'toggle-self-tell' });
+  assert.strictEqual(state.step, 'list');
+  assert.strictEqual(state.nightDone.indexOf(1), -1);
+  assert.strictEqual(state.wolfVotes[1], undefined);
+  W.send(state, { type: 'night-pick', id: 1 });
+  W.send(state, { type: 'go' });
+  W.send(state, { type: 'confirm', id: 2 });
+  assert.strictEqual(state.wolfVotes[1], 2);
+  const votes = JSON.stringify(state.wolfVotes);
+  const done = state.nightDone.slice();
+  W.send(state, { type: 'toggle-wolf-action' });
+  assert.strictEqual(JSON.stringify(state.wolfVotes), votes);
+  assert.deepStrictEqual(state.nightDone, done);
+  W.send(state, { type: 'toggle-self-tell' });
+  assert.strictEqual(state.step, 'sheet');
+  const script = W.narratorScript(state);
+  assert.deepStrictEqual(script.map(function (row) { return row.role; }), [
+    'seherin', 'seherin', 'werwolf', 'dorfbewohner', 'dorfbewohner'
+  ]);
+  const wolfCall = script.filter(function (row) { return row.role === 'werwolf'; })[0];
+  assert.strictEqual(wolfCall.quiet, true);
+  assert.strictEqual(wolfCall.reason, 'done');
+  assert.strictEqual(script.filter(function (row) { return row.reason === 'discarded'; }).length, 1);
+  W.send(state, { type: 'ack' });
+  let guard = 0;
+  while (state.screen === 'night' && state.narratorCalls[state.narratorIndex].role !== 'dorfbewohner') {
+    const view = W.view(state);
+    if (view.step === 'call' || view.step === 'sheet') W.send(state, { type: 'ack' });
+    else if (view.prompt && view.prompt.kind === 'seer') W.send(state, { type: 'skip' });
+    else W.send(state, { type: 'ack' });
+    if (++guard > 30) throw new Error(JSON.stringify(W.view(state)));
+  }
+  assert.strictEqual(JSON.stringify(state.wolfVotes), votes);
+  W.send(state, { type: 'toggle-self-tell' });
+  assert.strictEqual(state.selfTell, false);
+  assert.strictEqual(state.step, 'list');
+  W.send(state, { type: 'night-pick', id: 1 });
+  assert.ok(state.error);
+  assert.strictEqual(state.step, 'list');
+  assert.strictEqual(JSON.stringify(state.wolfVotes), votes);
+  guard = 0;
+  while (state.screen === 'night') {
+    if (state.step === 'list') {
+      const next = W.living(state).filter(function (p) { return state.nightDone.indexOf(p.id) < 0; })[0];
+      assert.ok(next && next.id !== 1);
+      W.send(state, { type: 'night-pick', id: next.id });
+    } else if (state.step === 'ready') W.send(state, { type: 'go' });
+    else {
+      const view = W.view(state);
+      if (view.prompt && view.prompt.kind === 'seer') W.send(state, { type: 'skip' });
+      else W.send(state, { type: 'ack' });
+    }
+    if (++guard > 40) throw new Error(JSON.stringify(W.view(state)));
+  }
+  assert.strictEqual(JSON.stringify(state.wolfVotes), votes);
+  assert.strictEqual(W.playerById(state, 2).alive, false);
+  assert.ok(state.announce.lines.join(' ').indexOf('von den Werwölfen') >= 0);
+});
+
+test('Angefangener Hexenzug bleibt beim Wechsel erhalten', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.hexe = 1;
+  counts.dorfbewohner = 2;
+  const state = make(['Wolf', 'Hexe', 'Anna', 'Bert'], counts, { selfTell: false, rolePool: false, healPotions: 1 });
+  setRoles(state, ['werwolf', 'hexe', 'dorfbewohner', 'dorfbewohner']);
+  W.beginNight(state);
+  W.send(state, { type: 'night-pick', id: 1 });
+  W.send(state, { type: 'go' });
+  W.send(state, { type: 'skip' });
+  W.send(state, { type: 'night-pick', id: 2 });
+  W.send(state, { type: 'go' });
+  W.send(state, { type: 'confirm', id: 3 });
+  assert.strictEqual(state.heals.length, 1);
+  assert.strictEqual(W.view(state).prompt.kind, 'poison');
+  W.send(state, { type: 'toggle-self-tell' });
+  assert.strictEqual(state.heals.length, 1);
+  assert.strictEqual(state.step, 'sheet');
+  let guard = 0;
+  while (state.screen === 'night' && !(W.view(state).prompt && W.view(state).prompt.kind === 'poison')) {
+    const view = W.view(state);
+    if (view.step === 'sheet' || view.step === 'call') W.send(state, { type: 'ack' });
+    else if (view.prompt && (view.prompt.kind === 'sleep' || view.prompt.kind === 'wolf')) W.send(state, { type: 'skip' });
+    else W.send(state, { type: 'ack' });
+    if (++guard > 30) throw new Error(JSON.stringify(W.view(state)));
+  }
+  assert.strictEqual(W.view(state).prompt.kind, 'poison');
+  assert.strictEqual(state.promptIndex, 1);
+  assert.deepStrictEqual(state.heals.map(Number), [3]);
+  W.send(state, { type: 'skip' });
+  assert.deepStrictEqual(state.heals.map(Number), [3]);
+  assert.strictEqual(state.poisons.length, 0);
+});
+
 test('Schalter merkt sich nur ein zusätzliches Feld, alte Schlüssel bleiben', function () {
   const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   assert.ok(src.indexOf("var LOBBY_KEY = 'werwolf.lobby.v1'") >= 0);

@@ -115,6 +115,7 @@
   function rememberTell() {
     if (!savedSetup || typeof savedSetup !== 'object') savedSetup = { v: 1 };
     savedSetup.selfTell = !!(state && state.selfTell);
+    savedSetup.showWolfAction = !!(state && state.showWolfAction);
   }
 
   function applySavedSetup() {
@@ -173,7 +174,7 @@
     rendering = true;
     try {
       W.send(state, action);
-      if (action.type === 'toggle-self-tell') rememberTell();
+      if (action.type === 'toggle-self-tell' || action.type === 'toggle-wolf-action') rememberTell();
       if (action.type === 'to-setup') applySavedSetup();
       if (state.screen === 'setup' && (action.type === 'to-setup' || action.type === 'undo-deal' || setupActions(action.type))) {
         rememberSetup();
@@ -550,7 +551,8 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     var role = call ? call.role : 'dorfbewohner';
     var person = call && call.playerId != null ? player(call.playerId) : null;
     var hint = 'Niemand handelt.';
-    if (person && person.alive && person.notice) hint = 'Niemand handelt. Die Rolle wurde gestohlen.';
+    if (state.narratorReason === 'done') hint = 'Niemand handelt. Schon erledigt.';
+    else if (person && person.alive && person.notice) hint = 'Niemand handelt. Die Rolle wurde gestohlen.';
     return header(phaseEyebrow(), W.roleName(role)) +
       hero(roleIcon(role), W.roleName(role)) +
       '<section class="stage">' +
@@ -932,6 +934,19 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     else html = renderLobby();
     app.innerHTML = html;
     armQuiet(!!(state && state.selfTell && state.screen === 'night' && state.step === 'call' && state.narratorQuiet));
+    syncSettings();
+  }
+
+  function syncSettings() {
+    var tell = document.getElementById('set-tell');
+    var wolf = document.getElementById('set-wolf');
+    if (!tell || !wolf) return;
+    var telling = !!(state && state.selfTell);
+    var showing = !!(state && state.showWolfAction);
+    tell.textContent = 'Wir erzählen selber: ' + (telling ? 'an' : 'aus');
+    tell.setAttribute('aria-pressed', telling ? 'true' : 'false');
+    wolf.textContent = 'Werwolf-Aktion anzeigen: ' + (showing ? 'an' : 'aus');
+    wolf.setAttribute('aria-pressed', showing ? 'true' : 'false');
   }
 
   function armQuiet(on) {
@@ -1007,6 +1022,22 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     event.preventDefault();
     var input = document.getElementById('name-input');
     act({ type: 'add-name', name: input ? input.value : '' });
+  });
+
+  var gearBtn = document.getElementById('gear-btn');
+  var settingsPanel = document.getElementById('settings-panel');
+  gearBtn.addEventListener('click', function () {
+    syncSettings();
+    settingsPanel.hidden = false;
+  });
+  document.getElementById('settings-close').addEventListener('click', function () {
+    settingsPanel.hidden = true;
+  });
+  document.getElementById('set-tell').addEventListener('click', function () {
+    act({ type: 'toggle-self-tell' });
+  });
+  document.getElementById('set-wolf').addEventListener('click', function () {
+    act({ type: 'toggle-wolf-action' });
   });
 
   var bugBtn = document.getElementById('bug-btn');

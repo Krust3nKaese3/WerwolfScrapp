@@ -94,6 +94,7 @@ async function main() {
     await togglePersists(browser, base);
     await quietAndSeer(browser, base);
     await narratorPlaysNight(browser, base);
+    await gearMidGame(browser, base);
   } finally {
     await browser.close();
     await new Promise(function (resolve) { started.server.close(resolve); });
@@ -213,6 +214,69 @@ async function narratorPlaysNight(browser, base) {
   const morning = await page.locator('#app').innerText();
   assert.ok(morning.indexOf('Morgen') >= 0, morning);
   assert.deepStrictEqual(errors, []);
+  await page.close();
+}
+
+function gearNight() {
+  return {
+    v: 1,
+    screen: 'night',
+    step: 'list',
+    selfTell: false,
+    showWolfAction: false,
+    nightDone: [],
+    nightNumber: 1,
+    day: 0,
+    mayorId: 1,
+    players: [
+      { id: 1, name: 'Anna', role: 'werwolf', alive: true, loverIds: [] },
+      { id: 2, name: 'Bea', role: 'dorfbewohner', alive: true, loverIds: [] },
+      { id: 3, name: 'Chris', role: 'dorfbewohner', alive: true, loverIds: [] },
+      { id: 4, name: 'Dora', role: 'dorfbewohner', alive: true, loverIds: [] }
+    ],
+    counts: { werwolf: 1, dorfbewohner: 3, seherin: 0, hexe: 0, amor: 0, jaeger: 0, waschbaer: 0, nachahmerin: 0, nutte: 0, russe: 0, politiker: 0, schaufel: 0 },
+    rolePool: false,
+    wolfVotes: {},
+    heals: [],
+    poisons: [],
+    hosts: {},
+    selection: [],
+    prompts: [],
+    promptIndex: 0,
+    log: [],
+    bonds: [],
+    order: [1, 2, 3, 4],
+    config: {}
+  };
+}
+
+async function gearMidGame(browser, base) {
+  const page = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
+  await page.addInitScript(function (payload) {
+    localStorage.setItem('werwolf.game.v1', JSON.stringify(payload));
+  }, gearNight());
+  await page.goto(base);
+  await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
+  await page.getByRole('button', { name: 'Einstellungen' }).click();
+  await page.getByRole('heading', { name: 'Einstellungen' }).waitFor();
+  assert.ok((await page.locator('#set-tell').innerText()).indexOf('aus') >= 0);
+  assert.ok((await page.locator('#set-wolf').innerText()).indexOf('aus') >= 0);
+  await page.locator('#settings-close').click();
+  await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
+  const names = await page.locator('button[data-act="night-pick"]:not([disabled])').count();
+  assert.strictEqual(names, 4);
+  await page.getByRole('button', { name: 'Einstellungen' }).click();
+  await page.locator('#set-tell').click();
+  await page.locator('#set-wolf').click();
+  assert.ok((await page.locator('#set-tell').innerText()).indexOf('an') >= 0);
+  assert.ok((await page.locator('#set-wolf').innerText()).indexOf('an') >= 0);
+  await page.locator('#settings-close').click();
+  await page.getByRole('heading', { name: 'Alle Rollen' }).waitFor();
+  await page.getByRole('button', { name: 'Einstellungen' }).click();
+  await page.locator('#set-tell').click();
+  await page.locator('#settings-close').click();
+  await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
+  assert.strictEqual(await page.locator('button[data-act="night-pick"]:not([disabled])').count(), 4);
   await page.close();
 }
 

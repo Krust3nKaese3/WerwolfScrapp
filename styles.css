@@ -11,7 +11,7 @@ button, input, textarea { font: inherit; color: inherit; }
 button { touch-action: manipulation; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 #app { max-width: 520px; margin: 0 auto; min-height: 100vh; padding: 16px 16px 32px; }
-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0 44px 16px 0; }
+header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin: 0 84px 16px 0; }
 h1 { font-size: 30px; line-height: 1.1; margin: 0; }
 h2 { font-size: 22px; line-height: 1.2; margin: 0 0 8px; }
 p { margin: 0; }
@@ -121,6 +121,15 @@ textarea { min-height: 120px; resize: vertical; }
   justify-content: center;
   padding: 0;
   opacity: 0.8;
+}
+.gear-launcher { right: 48px; }
+#settings-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: #12160f;
+  overflow: auto;
+  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
 }
 #bug-panel {
   position: fixed;
