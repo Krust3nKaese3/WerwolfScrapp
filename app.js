@@ -572,13 +572,31 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     var person = call && call.playerId != null ? player(call.playerId) : null;
     var hint = 'Niemand handelt.';
     if (state.narratorReason === 'done') hint = 'Niemand handelt. Schon erledigt.';
-    else if (person && person.alive && person.notice) hint = 'Niemand handelt. Die Rolle wurde gestohlen.';
+    else if (state.narratorReason !== 'cover' && person && person.alive && person.notice) hint = 'Niemand handelt. Die Rolle wurde gestohlen.';
     return header(phaseEyebrow(), W.roleName(role)) +
       hero(roleIcon(role), W.roleName(role)) +
       '<section class="stage">' +
       wakeLine(role) +
       '<p class="quiet-note">' + esc(hint) + '</p>' +
       '<button type="button" class="btn" data-act="ack" data-quiet="1" disabled>Weiter</button>' +
+      '<button type="button" class="btn secondary" data-act="narrator-sheet">Rollenliste</button>' +
+      '</section>';
+  }
+
+  function renderNarratorLovers() {
+    var lovers = W.narratorLovers(state);
+    var cards = lovers.map(function (p) {
+      return '<div class="lover-card">' +
+        '<p class="hero" role="img" aria-label="' + esc(W.roleName(p.role)) + '">' + roleIcon(p.role) + '</p>' +
+        '<p class="lover-huge">' + esc(p.name) + '</p>' +
+        '<p class="lead">' + roleIcon(p.role) + ' ' + esc(W.roleName(p.role)) + '</p></div>';
+    }).join('');
+    var body = lovers.length
+      ? '<p class="lead">Tippe die beiden Verliebten an, sie wachen auf und sehen sich.</p>' + cards
+      : '<p class="victim-none">Niemand ist verliebt</p><p class="hint">Tu so, als ob du das Liebespaar antippst.</p>';
+    return header(phaseEyebrow(), 'Liebespaar') +
+      '<section class="stage">' + body +
+      '<button type="button" class="btn" data-act="ack">Weiter</button>' +
       '<button type="button" class="btn secondary" data-act="narrator-sheet">Rollenliste</button>' +
       '</section>';
   }
@@ -608,6 +626,7 @@ if (!(poolOn && role === 'werwolf')) sum += count;
   function renderTurn() {
     if (state.selfTell && state.screen === 'night') {
       if (state.step === 'sheet') return renderNarratorSheet();
+      if (state.step === 'call' && narratorCall() && narratorCall().role === 'liebespaar') return renderNarratorLovers();
       if (state.step === 'call') return renderNarratorCall();
       if (state.step === 'show') return renderNarratorAction();
     }

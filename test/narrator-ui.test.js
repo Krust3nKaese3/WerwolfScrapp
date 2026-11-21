@@ -93,6 +93,7 @@ async function main() {
   try {
     await togglePersists(browser, base);
     await quietAndSeer(browser, base);
+    await loversScreen(browser, base);
     await narratorPlaysNight(browser, base);
     await gearMidGame(browser, base);
     await witchHealScreen(browser, base);
@@ -166,6 +167,115 @@ async function quietAndSeer(browser, base) {
   });
   assert.ok(size >= 60, String(size));
   await seer.close();
+}
+
+function loversNight(empty) {
+  return {
+    v: 1,
+    screen: 'night',
+    step: 'call',
+    selfTell: true,
+    narratorQuiet: false,
+    narratorIndex: 0,
+    narratorCalls: [
+      { role: 'liebespaar', playerId: null, slot: 0 },
+      { role: 'werwolf', playerId: 1, slot: 0 }
+    ],
+    nightDone: [],
+    nightNumber: 1,
+    day: 0,
+    mayorId: 1,
+    players: [
+      { id: 1, name: 'Anna', role: 'werwolf', alive: true, loverIds: empty ? [] : [2] },
+      { id: 2, name: 'Bea', role: 'dorfbewohner', alive: true, loverIds: empty ? [] : [1] },
+      { id: 3, name: 'Chris', role: 'dorfbewohner', alive: true, loverIds: [] },
+      { id: 4, name: 'Dora', role: 'amor', alive: true, loverIds: [], amorLinked: true }
+    ],
+    counts: { werwolf: 1, dorfbewohner: 2, amor: 1 },
+    selection: [],
+    prompts: [],
+    promptIndex: 0,
+    log: [],
+    bonds: empty ? [] : [[1, 2]],
+    heals: [],
+    poisons: [],
+    wolfVotes: {},
+    hosts: {},
+    shownDead: [],
+    order: [1, 2, 3, 4],
+    seenLove: {},
+    config: { selfTell: true, quickAmor: true }
+  };
+}
+
+function amorPickNight() {
+  const state = loversNight(true);
+  state.step = 'show';
+  state.narratorQuiet = false;
+  state.activeId = 4;
+  state.actorId = 4;
+  state.quickAmor = false;
+  state.players[3].amorLinked = false;
+  state.narratorCalls = [
+    { role: 'amor', playerId: 4, slot: 0 },
+    { role: 'liebespaar', playerId: null, slot: 0 },
+    { role: 'werwolf', playerId: 1, slot: 0 }
+  ];
+  state.prompts = [{ kind: 'amor', target: 'person', forced: true }];
+  return state;
+}
+
+async function loversScreen(browser, base) {
+  const page = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
+  const errors = [];
+  page.on('pageerror', function (error) { errors.push(String(error)); });
+  await page.addInitScript(function (payload) {
+    localStorage.setItem('werwolf.game.v1', JSON.stringify(payload));
+  }, loversNight(false));
+  await page.goto(base);
+  await page.getByRole('heading', { name: 'Liebespaar' }).waitFor();
+  const text = await page.locator('#app').innerText();
+  assert.ok(text.indexOf('Tippe die beiden Verliebten an, sie wachen auf und sehen sich.') >= 0, text);
+  assert.ok(text.indexOf('Anna') >= 0 && text.indexOf('Bea') >= 0, text);
+  assert.ok(text.indexOf('Werwolf') >= 0 && text.indexOf('Dorfbewohner') >= 0, text);
+  assert.ok(text.indexOf('🐺') >= 0 && text.indexOf('🧑‍🌾') >= 0, text);
+  const size = await page.locator('.lover-huge').first().evaluate(function (el) {
+    return parseFloat(getComputedStyle(el).fontSize);
+  });
+  assert.ok(size >= 60, String(size));
+  await page.getByRole('button', { name: 'Weiter' }).click();
+  await page.getByText('Werwolf, wach auf.').waitFor();
+  assert.deepStrictEqual(errors, []);
+  await page.close();
+
+  const empty = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
+  await empty.addInitScript(function (payload) {
+    localStorage.setItem('werwolf.game.v1', JSON.stringify(payload));
+  }, loversNight(true));
+  await empty.goto(base);
+  await empty.getByText('Niemand ist verliebt').waitFor();
+  const nobody = await empty.locator('#app').innerText();
+  assert.ok(nobody.indexOf('Tu so, als ob du das Liebespaar antippst.') >= 0, nobody);
+  assert.strictEqual(await empty.locator('.lover-huge').count(), 0);
+  await empty.getByRole('button', { name: 'Weiter' }).click();
+  await empty.getByText('Werwolf, wach auf.').waitFor();
+  await empty.close();
+
+  const amor = await browser.newPage({ viewport: { width: 412, height: 915 }, locale: 'de-DE' });
+  await amor.addInitScript(function (payload) {
+    localStorage.setItem('werwolf.game.v1', JSON.stringify(payload));
+  }, amorPickNight());
+  await amor.goto(base);
+  await amor.getByRole('button', { name: 'Anna' }).click();
+  await amor.getByRole('button', { name: 'Zurück', exact: true }).click();
+  const undone = await amor.evaluate(function () {
+    return JSON.parse(localStorage.getItem('werwolf.game.v1'));
+  });
+  assert.deepStrictEqual(undone.selection, []);
+  assert.deepStrictEqual(undone.bonds, []);
+  assert.ok(undone.nightDone.indexOf(4) < 0);
+  assert.strictEqual(undone.prompts[0].kind, 'amor');
+  await amor.close();
 }
 
 async function narratorPlaysNight(browser, base) {
