@@ -23,8 +23,10 @@
   ];
 
   /* Erzählermodus: feste Aufrufreihenfolge, einmal pro möglicher Karte.
-     Amor zuerst. Bei Quick Amor steht die Verbindung schon beim Aufdecken, der Aufruf verdeckt die Rolle nur.
-     Ohne Quick Amor verbindet er in Nacht 1 an dieser Stelle, vor den Wölfen. In späteren Nächten bleibt der Aufruf, ohne neue Verbindung.
+     Amor nur in Nacht 1, und nur wenn er im Setup möglich ist. Danach sofort das Liebespaar.
+     Bei Quick Amor aus verbindet er dort, vor den Wölfen. Bei Quick Amor an steht die Verbindung
+     schon beim Aufdecken, der Aufruf ist nur Tarnung. Ab Nacht 2 entfällt Amor.
+     Aussortiert, tot oder ohne Paar läuft derselbe Aufruf, das Liebespaar zeigt dann niemanden.
      Waschbär vor allen anderen Nachtaktionen, damit ein Diebstahl noch in dieser Nacht gilt, wenn das Opfer noch nicht dran war.
      Nachahmerin direkt danach, sie kopiert die aktuelle Rolle und setzt sie sofort ein.
      Gastgeberin, bevor die Nacht aufgelöst wird.
@@ -952,9 +954,14 @@
     return (state.counts && state.counts[role]) || 0;
   }
 
+  function narratorIncludesAmor(state) {
+    return (state.nightNumber || 0) === 1 && potentialRoleCount(state, 'amor') > 0;
+  }
+
   function buildNarratorCalls(state) {
     var calls = [];
     NARRATOR_CALL_ORDER.forEach(function (role) {
+      if (role === 'amor' && !narratorIncludesAmor(state)) return;
       var slots = potentialRoleCount(state, role);
       var holders = state.players.filter(function (p) { return p.role === role; });
       var i;
@@ -966,20 +973,42 @@
         if (!holders[i].alive) continue;
         calls.push({ role: role, playerId: holders[i].id, slot: i, extra: true });
       }
+      if (role === 'amor') calls.push({ role: 'liebespaar', playerId: null, slot: 0 });
     });
     return calls;
   }
 
   function narratorWakeText(role) {
+    if (role === 'liebespaar') return '';
     return roleName(role) + ', wach auf.';
   }
 
+  function narratorLovers(state) {
+    var seen = {};
+    var people = [];
+    (state.players || []).forEach(function (p) {
+      (p.loverIds || []).forEach(function (id) {
+        [Number(p.id), Number(id)].forEach(function (pid) {
+          if (seen[pid]) return;
+          var person = playerById(state, pid);
+          if (!person) return;
+          seen[pid] = true;
+          people.push({ id: person.id, name: person.name, role: person.role });
+        });
+      });
+    });
+    people.sort(function (a, b) { return seatIndex(state, a.id) - seatIndex(state, b.id); });
+    return people;
+  }
+
   function narratorCallQuiet(state, call) {
+    if (call && call.role === 'liebespaar') return { quiet: false, reason: '' };
     if (!call || call.playerId == null) return { quiet: true, reason: 'discarded' };
     var player = playerById(state, call.playerId);
     if (!player || !player.alive) return { quiet: true, reason: 'dead' };
     if (player.role !== call.role) return { quiet: true, reason: 'gone' };
     if (state.nightDone && state.nightDone.indexOf(player.id) >= 0) return { quiet: true, reason: 'done' };
+    if (call.role === 'amor' && !amorLinksTonight(state, player)) return { quiet: true, reason: 'cover' };
     return { quiet: false, reason: '' };
   }
 
@@ -1021,6 +1050,19 @@
       return;
     }
     var call = state.narratorCalls[state.narratorIndex];
+    if (call && call.role === 'liebespaar') {
+      state.narratorQuiet = false;
+      state.narratorReason = '';
+      state.selection = [];
+      state.error = '';
+      state.prompts = [];
+      state.promptIndex = 0;
+      state.step = 'call';
+      state.activeId = null;
+      state.actorId = null;
+      note(state, 'Erzähler Liebespaar');
+      return;
+    }
     var quiet = narratorCallQuiet(state, call);
     state.narratorQuiet = quiet.quiet;
     state.narratorReason = quiet.reason;
@@ -1114,6 +1156,16 @@
     }
   }
 
+  function ackLovers(state) {
+    if (!state.seenLove) state.seenLove = {};
+    narratorLovers(state).forEach(function (person) {
+      var sig = loveSignature(state, person.id);
+      if (sig) state.seenLove[person.id] = sig;
+    });
+    state.narratorIndex += 1;
+    openNarratorCall(state);
+  }
+
   function ackQuietCall(state) {
     var call = state.narratorCalls && state.narratorCalls[state.narratorIndex];
     var player = call && call.playerId != null ? playerById(state, call.playerId) : null;
@@ -1162,7 +1214,11 @@
       return;
     }
     if (state.step === 'call') {
-      if (action.type === 'ack' || action.type === 'narrator-next') ackQuietCall(state);
+      if (action.type === 'ack' || action.type === 'narrator-next') {
+        var lovers = state.narratorCalls && state.narratorCalls[state.narratorIndex];
+        if (lovers && lovers.role === 'liebespaar') ackLovers(state);
+        else ackQuietCall(state);
+      }
       return;
     }
     if (state.step === 'show' && action.type === 'back') {
@@ -1866,6 +1922,27 @@
     return !!(p && p.alive);
   }
 
+  function narratorCallKept(state, call) {
+    if (!call) return false;
+    if (call.role === 'liebespaar') return (state.nightNumber || 0) === 1;
+    if (NARRATOR_CALL_ORDER.indexOf(call.role) < 0) return false;
+    if (call.role === 'amor' && (state.nightNumber || 0) !== 1) return false;
+    return true;
+  }
+
+  function ensureNarratorLovers(state) {
+    if (!state || state.screen !== 'night' || (state.nightNumber || 0) !== 1) return;
+    if (!narratorIncludesAmor(state) || !Array.isArray(state.narratorCalls)) return;
+    if (state.narratorCalls.some(function (call) { return call && call.role === 'liebespaar'; })) return;
+    var lastAmor = -1;
+    state.narratorCalls.forEach(function (call, i) {
+      if (call && call.role === 'amor') lastAmor = i;
+    });
+    if (lastAmor < 0) return;
+    state.narratorCalls.splice(lastAmor + 1, 0, { role: 'liebespaar', playerId: null, slot: 0 });
+    if ((state.narratorIndex || 0) > lastAmor) state.narratorIndex += 1;
+  }
+
   function settleNarratorCalls(state) {
     if (!state || state.screen !== 'night' || !state.selfTell || !Array.isArray(state.narratorCalls)) return;
     var index = state.narratorIndex;
@@ -1876,20 +1953,22 @@
     var i;
     for (i = 0; i < state.narratorCalls.length; i++) {
       var call = state.narratorCalls[i];
-      if (call && NARRATOR_CALL_ORDER.indexOf(call.role) >= 0) kept.push(call);
+      if (narratorCallKept(state, call)) kept.push(call);
       else if (i < index) droppedBefore += 1;
       else if (i === index) currentDropped = true;
     }
-    if (kept.length === state.narratorCalls.length) return;
-    state.narratorCalls = kept;
-    var next = index - droppedBefore;
-    if (next < 0) next = 0;
-    if (next > kept.length) next = kept.length;
-    state.narratorIndex = next;
-    if ((state.step === 'call' || state.step === 'show') && (currentDropped || next >= kept.length)) {
-      openNarratorCall(state);
+    if (kept.length !== state.narratorCalls.length) {
+      state.narratorCalls = kept;
+      var next = index - droppedBefore;
+      if (next < 0) next = 0;
+      if (next > kept.length) next = kept.length;
+      state.narratorIndex = next;
+      if ((state.step === 'call' || state.step === 'show') && (currentDropped || next >= kept.length)) {
+        openNarratorCall(state);
+      }
+      note(state, 'Alte Aufrufe ohne Nachtaktion übersprungen');
     }
-    note(state, 'Alte Aufrufe ohne Nachtaktion übersprungen');
+    ensureNarratorLovers(state);
   }
 
   function adoptSaved(state) {
@@ -2060,6 +2139,13 @@
       } else if (state.screen === 'night' && state.nightNumber === 1 && unlinkedAmors(state).length) {
         if (state.quickAmor !== false) state.forceAmorNight = true;
         if (!state.selfTell && (state.step === 'list' || state.step === 'ready')) openAmorFirst(state);
+      }
+      if (state.selfTell && state.screen === 'night' && state.narratorCalls) {
+        var amorCall = state.narratorCalls[state.narratorIndex];
+        var amorBusy = (state.promptIndex || 0) > 0 || ((state.selection || []).length > 0 && state.step === 'show');
+        if (amorCall && amorCall.role === 'amor' && !amorBusy && (state.step === 'call' || state.step === 'show')) {
+          openNarratorCall(state);
+        }
       }
       note(state, 'Quick Amor ' + (state.quickAmor === false ? 'aus' : 'an'));
       return;
@@ -2768,6 +2854,7 @@
     buildNarratorCalls: buildNarratorCalls,
     narratorScript: narratorScript,
     narratorWakeText: narratorWakeText,
+    narratorLovers: narratorLovers,
     CAUSE_LABEL: CAUSE_LABEL,
     WIN_TEXT: WIN_TEXT,
     teamOfRole: teamOfRole,

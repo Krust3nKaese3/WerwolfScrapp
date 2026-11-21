@@ -444,7 +444,7 @@ test('Angefangener Hexenzug bleibt beim Wechsel erhalten', function () {
   assert.strictEqual(state.poisons.length, 0);
 });
 
-test('Quick Amor aus ruft Amor in Nacht 1 vor den Wölfen und später nur zum Schein', function () {
+test('Amor nur in Nacht 1, Liebespaar zeigt das Paar, Nacht 2 ohne Amor', function () {
   const counts = blankCounts();
   counts.werwolf = 1;
   counts.amor = 1;
@@ -454,32 +454,189 @@ test('Quick Amor aus ruft Amor in Nacht 1 vor den Wölfen und später nur zum Sc
   state.players[1].amorLinked = false;
   W.beginNight(state);
   const script = W.narratorScript(state);
-  assert.strictEqual(script[0].role, 'amor');
+  assert.deepStrictEqual(script.map(function (row) { return row.role; }), ['amor', 'liebespaar', 'werwolf']);
   assert.strictEqual(script[0].quiet, false);
-  assert.ok(script.findIndex(function (row) { return row.role === 'werwolf'; }) > 0);
+  assert.strictEqual(script[1].quiet, false);
+  assert.ok(script.findIndex(function (row) { return row.role === 'werwolf'; }) > 1);
   W.send(state, { type: 'ack' });
+  assert.strictEqual(W.view(state).prompt.kind, 'amor');
+  W.send(state, { type: 'select', id: 3 });
+  W.send(state, { type: 'back' });
+  assert.deepStrictEqual(state.selection, []);
+  assert.strictEqual(state.bonds.length, 0);
+  assert.strictEqual(state.nightDone.indexOf(2), -1);
   assert.strictEqual(W.view(state).prompt.kind, 'amor');
   W.send(state, { type: 'confirm', ids: [3, 4] });
   assert.strictEqual(state.bonds.length, 1);
+  assert.strictEqual(W.view(state).narratorRole, 'liebespaar');
+  assert.deepStrictEqual(W.narratorLovers(state).map(function (p) { return p.name + ':' + p.role; }), [
+    'Anna:dorfbewohner', 'Bert:dorfbewohner'
+  ]);
   assert.strictEqual(state.wolfVotes[1], undefined);
-  let guard = 0;
-  while (state.screen === 'night' && !(W.view(state).prompt && W.view(state).prompt.kind === 'wolf')) {
-    const view = W.view(state);
-    if (view.step === 'sheet' || view.step === 'call') W.send(state, { type: 'ack' });
-    else if (view.prompt && (view.prompt.kind === 'sleep' || view.prompt.kind === 'love')) W.send(state, { type: 'ack' });
-    else W.send(state, { type: 'ack' });
-    if (++guard > 20) throw new Error(JSON.stringify(W.view(state)));
-  }
+  W.send(state, { type: 'ack' });
   assert.strictEqual(W.view(state).prompt.kind, 'wolf');
   assert.strictEqual(state.bonds.length, 1);
-  assert.strictEqual(state.wolfVotes[1], undefined);
+  assert.notStrictEqual(W.view(state).narratorRole, 'amor');
+  assert.notStrictEqual(W.view(state).narratorRole, 'liebespaar');
   W.beginNight(state);
   assert.strictEqual(state.nightNumber, 2);
-  const later = W.narratorScript(state);
-  assert.ok(later.some(function (row) { return row.role === 'amor'; }));
+  const later = W.narratorScript(state).map(function (row) { return row.role; });
+  assert.ok(later.indexOf('amor') < 0);
+  assert.ok(later.indexOf('liebespaar') < 0);
   W.send(state, { type: 'ack' });
-  assert.notStrictEqual(W.view(state).prompt && W.view(state).prompt.kind, 'amor');
+  assert.notStrictEqual(W.view(state).narratorRole, 'amor');
+  assert.notStrictEqual(W.view(state).narratorRole, 'liebespaar');
   assert.strictEqual(state.players[1].amorLinked, true);
+});
+
+test('Quick Amor an tarnt den Aufruf, das Liebespaar zeigt das bestehende Paar', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.amor = 1;
+  counts.dorfbewohner = 2;
+  const state = make(['Wolf', 'Amor', 'Anna', 'Bert'], counts, { selfTell: true, rolePool: false, quickAmor: true });
+  setRoles(state, ['werwolf', 'amor', 'dorfbewohner', 'dorfbewohner']);
+  W.addLink(state, 1, 3);
+  W.beginNight(state);
+  const script = W.narratorScript(state);
+  assert.strictEqual(script[0].role, 'amor');
+  assert.strictEqual(script[0].quiet, true);
+  assert.strictEqual(script[0].reason, 'cover');
+  assert.strictEqual(script[1].role, 'liebespaar');
+  W.send(state, { type: 'ack' });
+  assert.strictEqual(state.step, 'call');
+  assert.strictEqual(state.narratorQuiet, true);
+  assert.notStrictEqual(W.view(state).prompt && W.view(state).prompt.kind, 'amor');
+  W.send(state, { type: 'ack' });
+  assert.strictEqual(W.view(state).narratorRole, 'liebespaar');
+  assert.deepStrictEqual(W.narratorLovers(state).map(function (p) { return p.id; }), [1, 3]);
+  W.send(state, { type: 'ack' });
+  assert.strictEqual(W.view(state).prompt.kind, 'wolf');
+  assert.strictEqual(state.seenLove[1], W.loveSignature(state, 1));
+  W.beginNight(state);
+  assert.ok(!W.narratorScript(state).some(function (row) { return row.role === 'amor' || row.role === 'liebespaar'; }));
+});
+
+test('Aussortierter, toter oder unverbundener Amor zeigt niemanden und Nacht 2 lässt ihn weg', function () {
+  const dealt = blankCounts();
+  dealt.werwolf = 1;
+  dealt.dorfbewohner = 3;
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.amor = 1;
+  counts.dorfbewohner = 3;
+  const discarded = make(['Anna', 'Bea', 'Chris', 'Dora'], dealt, { selfTell: true, rolePool: false, quickAmor: false });
+  discarded.counts = counts;
+  discarded.rolePool = true;
+  setRoles(discarded, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
+  W.beginNight(discarded);
+  const script = W.narratorScript(discarded);
+  assert.strictEqual(script[0].role, 'amor');
+  assert.strictEqual(script[0].quiet, true);
+  assert.strictEqual(script[0].reason, 'discarded');
+  assert.strictEqual(script[0].playerId, null);
+  assert.strictEqual(script[1].role, 'liebespaar');
+  W.send(discarded, { type: 'ack' });
+  W.send(discarded, { type: 'ack' });
+  assert.strictEqual(W.view(discarded).narratorRole, 'liebespaar');
+  assert.deepStrictEqual(W.narratorLovers(discarded), []);
+  W.beginNight(discarded);
+  assert.strictEqual(discarded.nightNumber, 2);
+  assert.ok(!W.narratorScript(discarded).some(function (row) { return row.role === 'amor' || row.role === 'liebespaar'; }));
+
+  const deadCounts = blankCounts();
+  deadCounts.werwolf = 1;
+  deadCounts.amor = 1;
+  deadCounts.dorfbewohner = 2;
+  const dead = make(['Wolf', 'Amor', 'Anna', 'Bert'], deadCounts, { selfTell: true, rolePool: false, quickAmor: false });
+  setRoles(dead, ['werwolf', 'amor', 'dorfbewohner', 'dorfbewohner']);
+  dead.players[1].amorLinked = false;
+  dead.players[1].alive = false;
+  W.beginNight(dead);
+  assert.strictEqual(W.narratorScript(dead)[0].reason, 'dead');
+  assert.strictEqual(W.narratorScript(dead)[1].role, 'liebespaar');
+  W.send(dead, { type: 'ack' });
+  W.send(dead, { type: 'ack' });
+  assert.deepStrictEqual(W.narratorLovers(dead), []);
+  assert.strictEqual(dead.screen, 'night');
+
+  const plain = make(['Wolf', 'Anna', 'Bert', 'Cem'], dealt, { selfTell: true, rolePool: false });
+  setRoles(plain, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
+  W.beginNight(plain);
+  assert.ok(!W.narratorScript(plain).some(function (row) { return row.role === 'amor' || row.role === 'liebespaar'; }));
+});
+
+test('Alter Spielstand und Umschalten bleiben bei Amor und Liebespaar lauffähig', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.amor = 1;
+  counts.dorfbewohner = 2;
+  const later = make(['Wolf', 'Amor', 'Anna', 'Bert'], counts, { selfTell: true, rolePool: false, quickAmor: true });
+  setRoles(later, ['werwolf', 'amor', 'dorfbewohner', 'dorfbewohner']);
+  later.screen = 'night';
+  later.step = 'call';
+  later.selfTell = true;
+  later.nightNumber = 2;
+  later.nightDone = [];
+  later.narratorIndex = 0;
+  later.narratorQuiet = true;
+  later.narratorCalls = [
+    { role: 'amor', playerId: 2, slot: 0 },
+    { role: 'liebespaar', playerId: null, slot: 0 },
+    { role: 'werwolf', playerId: 1, slot: 0 }
+  ];
+  W.adoptSaved(later);
+  assert.deepStrictEqual(later.narratorCalls.map(function (call) { return call.role; }), ['werwolf']);
+  assert.strictEqual(later.step, 'show');
+  assert.strictEqual(W.view(later).prompt.kind, 'wolf');
+  assert.strictEqual(later.screen, 'night');
+
+  const kept = make(['Wolf', 'Amor', 'Anna', 'Bert'], counts, { selfTell: true, rolePool: false, quickAmor: false });
+  setRoles(kept, ['werwolf', 'amor', 'dorfbewohner', 'dorfbewohner']);
+  kept.players[1].amorLinked = false;
+  kept.screen = 'night';
+  kept.step = 'show';
+  kept.selfTell = true;
+  kept.nightNumber = 1;
+  kept.nightDone = [];
+  kept.activeId = 2;
+  kept.actorId = 2;
+  kept.prompts = [{ kind: 'amor', target: 'person', forced: true }];
+  kept.promptIndex = 0;
+  kept.selection = [3];
+  kept.narratorIndex = 0;
+  kept.narratorCalls = [
+    { role: 'amor', playerId: 2, slot: 0 },
+    { role: 'werwolf', playerId: 1, slot: 0 }
+  ];
+  W.adoptSaved(kept);
+  assert.deepStrictEqual(kept.narratorCalls.map(function (call) { return call.role; }), ['amor', 'liebespaar', 'werwolf']);
+  assert.strictEqual(kept.narratorIndex, 0);
+  assert.strictEqual(W.view(kept).prompt.kind, 'amor');
+  assert.deepStrictEqual(kept.selection, [3]);
+  W.send(kept, { type: 'back' });
+  assert.deepStrictEqual(kept.selection, []);
+  assert.strictEqual(kept.bonds.length, 0);
+
+  const switched = make(['Wolf', 'Amor', 'Anna', 'Bert'], counts, { selfTell: true, rolePool: false, quickAmor: true });
+  setRoles(switched, ['werwolf', 'amor', 'dorfbewohner', 'dorfbewohner']);
+  switched.players[1].amorLinked = false;
+  W.beginNight(switched);
+  W.send(switched, { type: 'ack' });
+  assert.strictEqual(switched.narratorQuiet, true);
+  W.send(switched, { type: 'toggle-quick-amor' });
+  assert.strictEqual(switched.quickAmor, false);
+  assert.strictEqual(W.view(switched).prompt.kind, 'amor');
+  W.send(switched, { type: 'select', id: 4 });
+  W.send(switched, { type: 'back' });
+  assert.strictEqual(switched.bonds.length, 0);
+  assert.strictEqual(switched.nightDone.indexOf(2), -1);
+  W.send(switched, { type: 'toggle-self-tell' });
+  assert.strictEqual(switched.step, 'list');
+  W.send(switched, { type: 'toggle-self-tell' });
+  assert.strictEqual(switched.step, 'sheet');
+  assert.strictEqual(switched.screen, 'night');
+  assert.ok(W.narratorScript(switched).some(function (row) { return row.role === 'liebespaar'; }));
 });
 
 function reachHexe(state, choose) {
