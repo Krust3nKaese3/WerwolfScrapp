@@ -946,4 +946,94 @@ test('Rollenpool achtet auf Min und Max und lässt Karten liegen', function () {
   assert.ok(W.validateSetup(exact, 4, 1, 2) === '' && W.validateSetup(Object.assign({ wolfMin: 1, wolfMax: 1 }, exact), 5, 1, 2, true));
 });
 
+function causeText(state) {
+  return state.announce.title + ' ' + (state.announce.lines || []).join(' ');
+}
+
+function hidesCause(text) {
+  assert.ok(text.indexOf('ist gestorben') >= 0, text);
+  ['Werwölf', 'Gift', 'Liebeskummer', 'Jäger', 'Roulette', 'Gastgeberin', 'Duell', 'Abstimmung', 'Schuss', 'Liebe'].forEach(function (word) {
+    assert.strictEqual(text.indexOf(word), -1, word + ' in ' + text);
+  });
+}
+
+test('Werwolf-Aktion aus nennt nur den Namen, an die Ursache', function () {
+  function morning(show) {
+    const counts = {
+      werwolf: 1, dorfbewohner: 3, hexe: 1, seherin: 0, amor: 0, jaeger: 0,
+      waschbaer: 0, nachahmerin: 0, nutte: 0, russe: 0, politiker: 0, schaufel: 0
+    };
+    const state = game(['Wolf', 'Hexe', 'Anna', 'Bert', 'Cem'], counts, 1);
+    setRoles(state, ['werwolf', 'hexe', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
+    W.addLink(state, 3, 4);
+    if (show === 'missing') delete state.showWolfAction;
+    else state.showWolfAction = !!show;
+    startNight(state);
+    playNight(state, function (view) {
+      const kind = view.prompt && view.prompt.kind;
+      if (kind === 'wolf') return { type: 'confirm', id: 3 };
+      if (kind === 'heal') return { type: 'skip' };
+      if (kind === 'poison') return { type: 'confirm', id: 5 };
+      return null;
+    });
+    return state;
+  }
+  const hidden = causeText(morning(false));
+  hidesCause(hidden);
+  assert.ok(hidden.indexOf('Anna') >= 0 && hidden.indexOf('Bert') >= 0 && hidden.indexOf('Cem') >= 0, hidden);
+  hidesCause(causeText(morning('missing')));
+  const open = causeText(morning(true));
+  assert.ok(open.indexOf('von den Werwölfen') >= 0, open);
+  assert.ok(open.indexOf('durch Gift') >= 0, open);
+  assert.ok(open.indexOf('aus Liebeskummer') >= 0, open);
+
+  const counts = {
+    werwolf: 1, dorfbewohner: 2, hexe: 0, seherin: 0, amor: 0, jaeger: 0,
+    waschbaer: 0, nachahmerin: 0, nutte: 0, russe: 1, politiker: 0, schaufel: 0
+  };
+  const duel = game(['Russe', 'A', 'B', 'Wolf'], counts, 1);
+  setRoles(duel, ['russe', 'dorfbewohner', 'dorfbewohner', 'werwolf']);
+  delete duel.showWolfAction;
+  toDiscuss(duel);
+  W.send(duel, { type: 'to-duel' });
+  W.send(duel, { type: 'confirm', id: 1 });
+  W.send(duel, { type: 'confirm', ids: [2] });
+  W.send(duel, { type: 'ack' });
+  W.send(duel, { type: 'ack' });
+  hidesCause(causeText(duel));
+  const told = game(['Russe', 'A', 'B', 'Wolf'], counts, 1);
+  setRoles(told, ['russe', 'dorfbewohner', 'dorfbewohner', 'werwolf']);
+  told.showWolfAction = true;
+  toDiscuss(told);
+  W.send(told, { type: 'to-duel' });
+  W.send(told, { type: 'confirm', id: 1 });
+  W.send(told, { type: 'confirm', ids: [2] });
+  W.send(told, { type: 'ack' });
+  W.send(told, { type: 'ack' });
+  const duelText = causeText(told);
+  assert.ok(duelText.indexOf('Duell vorbei') >= 0, duelText);
+  assert.ok(duelText.indexOf('russischen Roulette') >= 0, duelText);
+
+  const vote = game(['Wolf', 'Anna', 'Bert', 'Cem']);
+  setRoles(vote, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
+  W.addLink(vote, 2, 3);
+  delete vote.showWolfAction;
+  toDiscuss(vote);
+  voteAll(vote, function () { return 2; });
+  W.send(vote, { type: 'ack' });
+  const voteText = causeText(vote);
+  hidesCause(voteText);
+  assert.ok(voteText.indexOf('Anna') >= 0 && voteText.indexOf('Bert') >= 0, voteText);
+  const voteOn = game(['Wolf', 'Anna', 'Bert', 'Cem']);
+  setRoles(voteOn, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
+  W.addLink(voteOn, 2, 3);
+  voteOn.showWolfAction = true;
+  toDiscuss(voteOn);
+  voteAll(voteOn, function () { return 2; });
+  W.send(voteOn, { type: 'ack' });
+  const voteOpen = causeText(voteOn);
+  assert.ok(voteOpen.indexOf('durch die Abstimmung') >= 0, voteOpen);
+  assert.ok(voteOpen.indexOf('aus Liebeskummer') >= 0, voteOpen);
+});
+
 console.log(passed + ' tests');

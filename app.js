@@ -92,7 +92,7 @@
 
   function setupActions(type) {
     return type === 'set-count' || type === 'set-nach' || type === 'set-heals' || type === 'set-wolf-min' ||
-      type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-pool' || type === 'suggest' ||
+      type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-pool' || type === 'suggest' ||
       type === 'undo-deal' || type === 'to-setup';
   }
 
@@ -105,6 +105,7 @@
       healPotions: state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
+      showWolfAction: !!state.showWolfAction,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       selfTell: !!state.selfTell
@@ -123,6 +124,7 @@
     if (savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
     if ('rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
     if ('seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
+    state.showWolfAction = savedSetup.showWolfAction === true;
     if (savedSetup.wolfMin != null) state.wolfMin = savedSetup.wolfMin;
     if (savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
     if ('selfTell' in savedSetup) state.selfTell = !!savedSetup.selfTell;
@@ -388,6 +390,10 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       '<div class="stack"><p class="lead">' + lead + '</p>' +
       '<button type="button" class="btn secondary" data-act="toggle-pool" aria-pressed="' + (poolOn ? 'true' : 'false') + '">Mehr Rollen als Spieler: ' + (poolOn ? 'an' : 'aus') + '</button>' +
       '<button type="button" class="btn secondary" data-act="toggle-seer" aria-pressed="' + (state.seerExact ? 'true' : 'false') + '">Seherin sieht genaue Rolle: ' + (state.seerExact ? 'an' : 'aus') + '</button>' +
+      '<button type="button" class="btn secondary" data-act="toggle-wolf-action" aria-pressed="' + (state.showWolfAction ? 'true' : 'false') + '">Werwolf-Aktion anzeigen: ' + (state.showWolfAction ? 'an' : 'aus') + '</button>' +
+      '<p class="hint">' + (state.showWolfAction
+        ? 'An: Am Morgen und am Tag steht dazu, woran jemand gestorben ist.'
+        : 'Aus: Am Morgen und am Tag steht nur, wer gestorben ist. Nicht, ob Werwolf, Hexe, Liebe, Gastgeberin oder Duell.') + '</p>' +
       (problem ? '<div class="banner error">' + esc(problem) + '</div>' : '') +
       '<div class="card stack">' + rows +
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('nachahmerin')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +

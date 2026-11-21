@@ -307,6 +307,31 @@ test('Tag: Erzähler trägt die Abstimmung ein, Politiker gewinnt nach der alten
   assert.strictEqual(W.playerById(state, 4).alive, false);
 });
 
+test('Erzähler-Ansage verschweigt die Ursache, wenn die Werwolf-Aktion aus ist', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.dorfbewohner = 3;
+  const state = make(['Wolf', 'Anna', 'Bert', 'Cem'], counts, { selfTell: true, rolePool: false });
+  setRoles(state, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
+  delete state.showWolfAction;
+  W.beginNight(state);
+  playNarrator(state, function (view) {
+    if (view.prompt && view.prompt.kind === 'wolf') return { type: 'confirm', id: 2 };
+    return null;
+  });
+  const text = state.announce.lines.join(' ');
+  assert.ok(text.indexOf('Anna ist gestorben.') >= 0, text);
+  assert.strictEqual(text.indexOf('Werwöl'), -1, text);
+  const shown = make(['Wolf', 'Anna', 'Bert', 'Cem'], counts, { selfTell: true, rolePool: false, showWolfAction: true });
+  setRoles(shown, ['werwolf', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
+  W.beginNight(shown);
+  playNarrator(shown, function (view) {
+    if (view.prompt && view.prompt.kind === 'wolf') return { type: 'confirm', id: 2 };
+    return null;
+  });
+  assert.ok(shown.announce.lines.join(' ').indexOf('von den Werwölfen') >= 0, shown.announce.lines.join(' '));
+});
+
 test('Schalter merkt sich nur ein zusätzliches Feld, alte Schlüssel bleiben', function () {
   const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   assert.ok(src.indexOf("var LOBBY_KEY = 'werwolf.lobby.v1'") >= 0);

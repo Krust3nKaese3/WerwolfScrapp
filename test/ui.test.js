@@ -229,16 +229,22 @@ async function checkSetupPersists(browser, base) {
   const seer = page.getByRole('button', { name: /Seherin sieht genaue Rolle/ });
   if ((await seer.innerText()).includes('aus')) await seer.click();
   assert.ok((await seer.innerText()).includes('an'));
+  const wolfAct = page.getByRole('button', { name: /Werwolf-Aktion anzeigen/ });
+  assert.ok((await wolfAct.innerText()).includes('aus'));
+  await wolfAct.click();
+  assert.ok((await wolfAct.innerText()).includes('an'));
   await page.getByRole('button', { name: 'Zurück zu den Namen' }).click();
   await page.reload();
   await page.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   const again = page.getByRole('button', { name: /Seherin sieht genaue Rolle/ });
   assert.ok((await again.innerText()).includes('an'));
+  assert.ok((await page.getByRole('button', { name: /Werwolf-Aktion anzeigen/ }).innerText()).includes('an'));
   assert.ok((await page.getByRole('button', { name: /Mehr Rollen als Spieler/ }).innerText()).includes('aus'));
   const wolves = Number((await page.locator('.stepper', { hasText: 'Werwolf' }).first().locator('strong').innerText()).trim());
   assert.strictEqual(wolves, 2);
   const stored = await page.evaluate(function () { return localStorage.getItem('werwolf.setup.v1'); });
   assert.ok(stored && stored.indexOf('"seerExact":true') >= 0, stored);
+  assert.ok(stored.indexOf('"showWolfAction":true') >= 0, stored);
   assert.ok(stored.indexOf('"nutte":1') >= 0, stored);
   await page.close();
 }

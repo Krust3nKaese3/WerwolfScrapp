@@ -258,6 +258,7 @@
       healPotions: 2,
       rolePool: true,
       seerExact: false,
+      showWolfAction: false,
       wolfMin: wolves,
       wolfMax: wolves
     };
@@ -271,6 +272,7 @@
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
+      showWolfAction: !!state.showWolfAction,
       wolfMin: state.wolfMin == null ? wolves : state.wolfMin,
       wolfMax: state.wolfMax == null ? wolves : state.wolfMax
     };
@@ -282,6 +284,7 @@
     state.healPotions = config.healPotions;
     state.rolePool = !!config.rolePool;
     state.seerExact = !!config.seerExact;
+    state.showWolfAction = !!config.showWolfAction;
     state.wolfMin = config.wolfMin;
     state.wolfMax = config.wolfMax;
     state.confirmUndoDeal = false;
@@ -345,8 +348,10 @@
     state.wolfMax = wolfMax;
     state.seerExact = !!opts.seerExact;
     state.selfTell = !!opts.selfTell;
+    state.showWolfAction = !!opts.showWolfAction;
     state.config.rolePool = rolePool;
     state.config.selfTell = state.selfTell;
+    state.config.showWolfAction = state.showWolfAction;
     state.config.wolfMin = wolfMin;
     state.config.wolfMax = wolfMax;
     state.config.seerExact = state.seerExact;
@@ -472,6 +477,7 @@
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
       selfTell: !!state.selfTell,
+      showWolfAction: !!state.showWolfAction,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       log: state.log
@@ -1234,7 +1240,7 @@
     var lines = [];
     if (!state.obit.length) lines.push('Niemand ist in der Nacht gestorben.');
     state.obit.forEach(function (row) {
-      lines.push(row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').');
+      lines.push(deathLine(state, row));
     });
     state.revived.forEach(function (row) {
       lines.push(row.name + ' ist wieder im Dorf.');
@@ -1270,6 +1276,13 @@
     state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'apply-vote' };
     setScreen(state, 'announce');
     note(state, 'Verurteilt ' + target.name);
+  }
+
+  function deathLine(state, row) {
+    if (state && state.showWolfAction) {
+      return row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').';
+    }
+    return row.name + ' ist gestorben.';
   }
 
   function tallyLines(state, scores) {
@@ -1308,11 +1321,9 @@
     var win = checkWin(state);
     var extra = state.obit.filter(function (row) { return row.cause !== 'abstimmung'; });
     if (extra.length || win) {
-      var lines = state.obit.map(function (row) {
-        return row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').';
-      });
+      var lines = state.obit.map(function (row) { return deathLine(state, row); });
       state.announce = {
-        title: 'Nach der Abstimmung',
+        title: state.showWolfAction ? 'Nach der Abstimmung' : 'Am Tag',
         lines: lines,
         button: win ? 'Ergebnis' : 'Nacht beginnt',
         then: win ? 'end' : 'night'
@@ -1325,12 +1336,10 @@
 
   function finishDuelAftermath(state) {
     var win = checkWin(state);
-    var lines = state.obit.map(function (row) {
-      return row.name + ' ist gestorben (' + (CAUSE_LABEL[row.cause] || row.cause) + ').';
-    });
-    if (!lines.length) lines.push('Das Duell endet ohne Toten.');
+    var lines = state.obit.map(function (row) { return deathLine(state, row); });
+    if (!lines.length) lines.push(state.showWolfAction ? 'Das Duell endet ohne Toten.' : 'Niemand ist gestorben.');
     state.announce = {
-      title: 'Duell vorbei',
+      title: state.showWolfAction ? 'Duell vorbei' : 'Am Tag',
       lines: lines,
       button: win ? 'Ergebnis' : 'Zurück zur Diskussion',
       then: win ? 'end' : 'discuss'
@@ -1757,6 +1766,12 @@
     if (action.type === 'toggle-seer') {
       state.seerExact = !state.seerExact;
       state.error = '';
+      return;
+    }
+    if (action.type === 'toggle-wolf-action') {
+      state.showWolfAction = !state.showWolfAction;
+      state.error = '';
+      note(state, 'Werwolf-Aktion ' + (state.showWolfAction ? 'an' : 'aus'));
       return;
     }
     if (action.type === 'toggle-self-tell') {
