@@ -261,6 +261,9 @@ async function gearMidGame(browser, base) {
   await page.getByRole('heading', { name: 'Einstellungen' }).waitFor();
   assert.ok((await page.locator('#set-tell').innerText()).indexOf('aus') >= 0);
   assert.ok((await page.locator('#set-wolf').innerText()).indexOf('aus') >= 0);
+  assert.ok((await page.locator('#set-amor').innerText()).indexOf('an') >= 0);
+  await page.locator('#set-amor').click();
+  assert.ok((await page.locator('#set-amor').innerText()).indexOf('aus') >= 0);
   await page.locator('#settings-close').click();
   await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
   const names = await page.locator('button[data-act="night-pick"]:not([disabled])').count();

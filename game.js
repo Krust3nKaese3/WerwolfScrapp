@@ -23,7 +23,8 @@
   ];
 
   /* Erzählermodus: feste Aufrufreihenfolge, einmal pro möglicher Karte.
-     Amor zuerst, weil die Verbindung schon beim Aufdecken steht und der Aufruf die Rolle nur verdeckt.
+     Amor zuerst. Bei Quick Amor steht die Verbindung schon beim Aufdecken, der Aufruf verdeckt die Rolle nur.
+     Ohne Quick Amor verbindet er in Nacht 1 an dieser Stelle, vor den Wölfen. In späteren Nächten bleibt der Aufruf, ohne neue Verbindung.
      Waschbär vor allen anderen Nachtaktionen, damit ein Diebstahl noch in dieser Nacht gilt, wenn das Opfer noch nicht dran war.
      Nachahmerin direkt danach, sie kopiert die aktuelle Rolle und setzt sie sofort ein.
      Gastgeberin, bevor die Nacht aufgelöst wird.
@@ -259,6 +260,7 @@
       rolePool: true,
       seerExact: false,
       showWolfAction: false,
+      quickAmor: true,
       wolfMin: wolves,
       wolfMax: wolves
     };
@@ -273,6 +275,7 @@
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
       showWolfAction: !!state.showWolfAction,
+      quickAmor: state.quickAmor !== false,
       wolfMin: state.wolfMin == null ? wolves : state.wolfMin,
       wolfMax: state.wolfMax == null ? wolves : state.wolfMax
     };
@@ -285,6 +288,7 @@
     state.rolePool = !!config.rolePool;
     state.seerExact = !!config.seerExact;
     state.showWolfAction = !!config.showWolfAction;
+    state.quickAmor = config.quickAmor !== false;
     state.wolfMin = config.wolfMin;
     state.wolfMax = config.wolfMax;
     state.confirmUndoDeal = false;
@@ -349,9 +353,11 @@
     state.seerExact = !!opts.seerExact;
     state.selfTell = !!opts.selfTell;
     state.showWolfAction = !!opts.showWolfAction;
+    state.quickAmor = opts.quickAmor !== false;
     state.config.rolePool = rolePool;
     state.config.selfTell = state.selfTell;
     state.config.showWolfAction = state.showWolfAction;
+    state.config.quickAmor = state.quickAmor;
     state.config.wolfMin = wolfMin;
     state.config.wolfMax = wolfMax;
     state.config.seerExact = state.seerExact;
@@ -404,6 +410,7 @@
       seenLove: {},
       bonds: [],
       selfTell: false,
+      quickAmor: true,
       narratorCalls: null,
       narratorIndex: 0,
       narratorQuiet: false,
@@ -478,6 +485,7 @@
       seerExact: !!state.seerExact,
       selfTell: !!state.selfTell,
       showWolfAction: !!state.showWolfAction,
+      quickAmor: state.quickAmor !== false,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       log: state.log
@@ -845,6 +853,53 @@
       return;
     }
     if (state.selfTell) openNarratorSheet(state);
+    else if (nightWaitsForAmor(state)) openAmorFirst(state);
+  }
+
+  function unlinkedAmors(state) {
+    return (state.players || []).filter(function (p) {
+      return p.alive && p.role === 'amor' && !p.amorLinked;
+    });
+  }
+
+  function amorLinksTonight(state, player) {
+    if (!player || player.role !== 'amor' || player.amorLinked) return false;
+    if ((state.nightNumber || 0) !== 1) return false;
+    return state.quickAmor === false || !!state.forceAmorNight;
+  }
+
+  function nightWaitsForAmor(state) {
+    if (!state || state.screen !== 'night' || state.selfTell) return false;
+    if ((state.nightNumber || 0) !== 1) return false;
+    var done = state.nightDone || [];
+    return unlinkedAmors(state).some(function (p) {
+      return amorLinksTonight(state, p) && done.indexOf(p.id) < 0;
+    });
+  }
+
+  function openAmorFirst(state) {
+    var done = state.nightDone || [];
+    var next = unlinkedAmors(state).filter(function (p) {
+      return amorLinksTonight(state, p) && done.indexOf(p.id) < 0;
+    })[0];
+    if (!next) {
+      state.step = 'list';
+      state.activeId = null;
+      state.actorId = null;
+      return;
+    }
+    state.activeId = next.id;
+    state.actorId = next.id;
+    state.step = 'ready';
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    state.error = '';
+    note(state, 'Amor zuerst ' + next.name);
+  }
+
+  function amorAlreadyLinked(state) {
+    return (state.players || []).some(function (p) { return p.role === 'amor' && p.amorLinked; });
   }
 
   function potentialRoleCount(state, role) {
@@ -1113,6 +1168,7 @@
   }
 
   function passOneAction(state, player) {
+    if (amorLinksTonight(state, player)) return { kind: 'amor', target: 'person', forced: true };
     if (player.role === 'nutte') return { kind: 'nutte', target: 'house' };
     if (player.role === 'nachahmerin' && player.nachLeft > 0) return { kind: 'copy', target: 'person', depth: 0 };
     if (player.role === 'waschbaer' && !player.stealUsed) return { kind: 'steal', target: 'person', forced: false };
@@ -1233,6 +1289,10 @@
     var pending = livingIds(state).filter(function (pid) { return state.nightDone.indexOf(pid) < 0; });
     if (!pending.length) {
       endPass(state);
+      return;
+    }
+    if (nightWaitsForAmor(state)) {
+      openAmorFirst(state);
       return;
     }
     state.step = 'list';
@@ -1601,6 +1661,11 @@
       if (pair[0] === pair[1]) return 'Zwei verschiedene Personen.';
       if (!livingTarget(state, pair[0]) || !livingTarget(state, pair[1])) return 'Beide müssen leben.';
       addLink(state, pair[0], pair[1]);
+      if (player.role === 'amor') {
+        player.amorLinked = true;
+        player.amorPair = pair.slice();
+        if (!unlinkedAmors(state).length) state.forceAmorNight = false;
+      }
       if (pair.indexOf(player.id) >= 0) return [{ kind: 'love' }];
       return [];
     }
@@ -1849,6 +1914,37 @@
       note(state, 'Werwolf-Aktion ' + (state.showWolfAction ? 'an' : 'aus'));
       return;
     }
+    if (action.type === 'toggle-quick-amor') {
+      if (amorAlreadyLinked(state)) {
+        state.error = 'Amor hat schon verbunden.';
+        note(state, 'Quick Amor bleibt');
+        return;
+      }
+      var amorPrompt = state.step === 'show' ? currentPrompt(state) : null;
+      if (state.screen === 'night' && amorPrompt && amorPrompt.kind === 'amor' && (state.promptIndex || 0) > 0) {
+        state.error = 'Die Aktion hat schon angefangen.';
+        return;
+      }
+      state.quickAmor = state.quickAmor === false;
+      if (state.config) state.config.quickAmor = state.quickAmor !== false;
+      state.forceAmorNight = false;
+      state.error = '';
+      if (state.screen === 'reveal' && state.step === 'link' && state.quickAmor === false) {
+        state.step = 'show';
+        state.selection = [];
+      } else if (state.screen === 'reveal' && state.step === 'show' && state.quickAmor !== false) {
+        var showing = playerById(state, state.activeId);
+        if (showing && showing.role === 'amor' && !showing.amorLinked) {
+          state.step = 'link';
+          state.selection = [];
+        }
+      } else if (state.screen === 'night' && state.nightNumber === 1 && unlinkedAmors(state).length) {
+        if (state.quickAmor !== false) state.forceAmorNight = true;
+        if (!state.selfTell && (state.step === 'list' || state.step === 'ready')) openAmorFirst(state);
+      }
+      note(state, 'Quick Amor ' + (state.quickAmor === false ? 'aus' : 'an'));
+      return;
+    }
     if (action.type === 'toggle-self-tell') {
       state.selfTell = !state.selfTell;
       if (state.config) state.config.selfTell = !!state.selfTell;
@@ -1922,6 +2018,10 @@
     lobby.nextId = state.nextId || (lobby.players.length + 1);
     lobby.log = state.log || [];
     lobby.selfTell = !!state.selfTell;
+    lobby.showWolfAction = !!state.showWolfAction;
+    lobby.quickAmor = state.quickAmor !== false;
+    lobby.seerExact = !!state.seerExact;
+    lobby.rolePool = state.rolePool !== false;
     return lobby;
   }
 
@@ -1939,7 +2039,7 @@
 
   function revealDone(state, player) {
     if (!player || !state.revealed || !state.revealed[player.id]) return false;
-    if (player.role === 'amor' && !player.amorLinked) return false;
+    if (state.quickAmor !== false && player.role === 'amor' && !player.amorLinked) return false;
     return true;
   }
 
@@ -1995,7 +2095,7 @@
       state.selection = [];
       state.confirmUndoDeal = false;
       state.error = '';
-      state.step = person.role === 'amor' && !person.amorLinked ? 'link' : 'show';
+      state.step = state.quickAmor !== false && person.role === 'amor' && !person.amorLinked ? 'link' : 'show';
       note(state, 'Rolle zeigen ' + person.name);
       return;
     }
@@ -2118,6 +2218,10 @@
       if (action.type !== 'night-pick') return;
       var picked = playerById(state, action.id);
       if (!picked || !picked.alive) return;
+      if (nightWaitsForAmor(state) && picked.role !== 'amor') {
+        state.error = 'Zuerst ist Amor dran.';
+        return;
+      }
       if (state.nightDone.indexOf(picked.id) >= 0) {
         state.error = 'Diese Person war diese Nacht schon dran.';
         return;
@@ -2575,6 +2679,7 @@
     everyoneRevealed: everyoneRevealed,
     revealReady: revealReady,
     revealDone: revealDone,
+    nightWaitsForAmor: nightWaitsForAmor,
     pendingNames: pendingNames,
     currentConfig: currentConfig,
     adoptSaved: adoptSaved,

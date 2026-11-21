@@ -92,7 +92,8 @@
 
   function setupActions(type) {
     return type === 'set-count' || type === 'set-nach' || type === 'set-heals' || type === 'set-wolf-min' ||
-      type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-pool' || type === 'suggest' ||
+      type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-quick-amor' ||
+      type === 'toggle-pool' || type === 'suggest' ||
       type === 'undo-deal' || type === 'to-setup';
   }
 
@@ -106,16 +107,21 @@
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
       showWolfAction: !!state.showWolfAction,
+      quickAmor: state.quickAmor !== false,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       selfTell: !!state.selfTell
     };
   }
 
-  function rememberTell() {
+  function rememberModes() {
     if (!savedSetup || typeof savedSetup !== 'object') savedSetup = { v: 1 };
-    savedSetup.selfTell = !!(state && state.selfTell);
-    savedSetup.showWolfAction = !!(state && state.showWolfAction);
+    if (!state) return;
+    savedSetup.selfTell = !!state.selfTell;
+    savedSetup.showWolfAction = !!state.showWolfAction;
+    savedSetup.quickAmor = state.quickAmor !== false;
+    if (state.rolePool != null) savedSetup.rolePool = !!state.rolePool;
+    if (state.seerExact != null) savedSetup.seerExact = !!state.seerExact;
   }
 
   function applySavedSetup() {
@@ -126,6 +132,7 @@
     if ('rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
     if ('seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
     state.showWolfAction = savedSetup.showWolfAction === true;
+    if ('quickAmor' in savedSetup) state.quickAmor = savedSetup.quickAmor !== false;
     if (savedSetup.wolfMin != null) state.wolfMin = savedSetup.wolfMin;
     if (savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
     if ('selfTell' in savedSetup) state.selfTell = !!savedSetup.selfTell;
@@ -174,7 +181,7 @@
     rendering = true;
     try {
       W.send(state, action);
-      if (action.type === 'toggle-self-tell' || action.type === 'toggle-wolf-action') rememberTell();
+      if (action.type === 'toggle-self-tell' || action.type === 'toggle-wolf-action' || action.type === 'toggle-quick-amor' || action.type === 'toggle-seer' || action.type === 'toggle-pool') rememberModes();
       if (action.type === 'to-setup') applySavedSetup();
       if (state.screen === 'setup' && (action.type === 'to-setup' || action.type === 'undo-deal' || setupActions(action.type))) {
         rememberSetup();
@@ -270,7 +277,9 @@
       seherin: state.seerExact
         ? 'Nachts siehst du die genaue Rolle einer Person.'
         : 'Nachts siehst du nur Team Dorfbewohner oder Böse.',
-      amor: 'Beim Aufdecken verbindest du zwei Personen, dich selbst eingeschlossen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.',
+      amor: state.quickAmor === false
+        ? 'In Nacht 1 verbindest du zwei Personen, dich selbst eingeschlossen, bevor die Wölfe wählen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.'
+        : 'Beim Aufdecken verbindest du zwei Personen, dich selbst eingeschlossen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.',
       jaeger: 'Wenn du stirbst, schießt du auf eine Person.',
       waschbaer: 'Einmal darfst du die Rolle einer lebenden Person stehlen. Hat sie heute noch nicht gehandelt, gilt die Rolle sofort, sonst ab der nächsten Nacht.',
       nachahmerin: 'Du kannst ' + uses + ' Mal die Fähigkeit einer anderen Person nachahmen und musst sie sofort einsetzen.',
@@ -395,6 +404,10 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       '<p class="hint">' + (state.showWolfAction
         ? 'An: Am Morgen und am Tag steht dazu, woran jemand gestorben ist.'
         : 'Aus: Am Morgen und am Tag steht nur, wer gestorben ist. Nicht, ob Werwolf, Hexe, Liebe, Gastgeberin oder Duell.') + '</p>' +
+      '<button type="button" class="btn secondary" data-act="toggle-quick-amor" aria-pressed="' + (state.quickAmor !== false ? 'true' : 'false') + '">Quick Amor: ' + (state.quickAmor !== false ? 'an' : 'aus') + '</button>' +
+      '<p class="hint">' + (state.quickAmor !== false
+        ? 'An: Amor verbindet beim Aufdecken. Spiel starten wartet auf das Paar.'
+        : 'Aus: Amor verbindet in Nacht 1, als erste Rolle, vor den Wölfen.') + '</p>' +
       (problem ? '<div class="banner error">' + esc(problem) + '</div>' : '') +
       '<div class="card stack">' + rows +
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('nachahmerin')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
@@ -475,7 +488,9 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     return header('Rollen', 'Wer ist dran?') +
       hero('🎭', 'Rollen aufdecken') +
       '<div class="stack">' + errorHtml() +
-      '<p class="lead">Jede Person tippt den eigenen Namen und sieht nur die eigene Rolle. Der Name wird grau, wenn sie fertig ist, und bleibt antippbar. Amor ist erst fertig, wenn er ein Paar verbunden hat. Spiel starten geht erst dann.</p>' +
+      '<p class="lead">' + (state.quickAmor !== false
+        ? 'Jede Person tippt den eigenen Namen und sieht nur die eigene Rolle. Der Name wird grau, wenn sie fertig ist, und bleibt antippbar. Amor ist erst fertig, wenn er ein Paar verbunden hat. Spiel starten geht erst dann.'
+        : 'Jede Person tippt den eigenen Namen und sieht nur die eigene Rolle. Der Name wird grau, wenn sie fertig ist, und bleibt antippbar. Amor verbindet das Paar erst in Nacht 1, vor den Wölfen.') + '</p>' +
       (state.selfTell ? '<p class="hint">Danach behält nur der Erzähler das Handy. Er spielt nicht mit.</p>' : '') +
       '<div class="stack">' + names + '</div>' +
       (startReady ? '' : '<p class="hint">Noch nicht fertig: ' + esc(pending.join(', ')) + '</p>') +
@@ -614,16 +629,20 @@ if (!(poolOn && role === 'werwolf')) sum += count;
 
   function renderNightList() {
     var done = state.nightDone || [];
+    var waits = W.nightWaitsForAmor(state);
     var names = W.living(state).map(function (p) {
       var finished = done.indexOf(p.id) >= 0;
+      var held = waits && p.role !== 'amor';
       return '<button type="button" class="choice' + (finished ? ' done' : '') + '" data-act="night-pick" data-id="' + p.id + '"' +
-        (finished ? ' disabled' : '') + '><span><span class="who">' + esc(p.name) + '</span>' +
+        (finished || held ? ' disabled' : '') + '><span><span class="who">' + esc(p.name) + '</span>' +
         '<span class="meta">' + (finished ? 'schon dran' : 'tippen, wenn du dran bist') + '</span></span></button>';
     }).join('');
     return header(phaseEyebrow(), 'Wer ist wach?') +
       hero('🌙', 'Nacht') +
       '<div class="stack">' + errorHtml() +
-      '<p class="lead">Jede lebende Person tippt den eigenen Namen. Die Reihenfolge ist egal. Wer fertig ist, wird grau und kann diese Nacht nicht noch einmal.</p>' +
+      '<p class="lead">' + (waits
+        ? 'Zuerst tippt Amor. Zurück vor dem Bestätigen verbraucht nichts. Danach ist die Reihenfolge egal, die Wölfe erst nach Amor.'
+        : 'Jede lebende Person tippt den eigenen Namen. Die Reihenfolge ist egal. Wer fertig ist, wird grau und kann diese Nacht nicht noch einmal.') + '</p>' +
       '<div class="stack">' + names + '</div>' + abortLink() + '</div>';
   }
 
@@ -941,12 +960,19 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var tell = document.getElementById('set-tell');
     var wolf = document.getElementById('set-wolf');
     if (!tell || !wolf) return;
+    var amor = document.getElementById('set-amor');
     var telling = !!(state && state.selfTell);
     var showing = !!(state && state.showWolfAction);
+    var quick = !state || state.quickAmor !== false;
+    var linked = !!(state && state.players && state.players.some(function (p) { return p.role === 'amor' && p.amorLinked; }));
     tell.textContent = 'Wir erzählen selber: ' + (telling ? 'an' : 'aus');
     tell.setAttribute('aria-pressed', telling ? 'true' : 'false');
     wolf.textContent = 'Werwolf-Aktion anzeigen: ' + (showing ? 'an' : 'aus');
     wolf.setAttribute('aria-pressed', showing ? 'true' : 'false');
+    if (!amor) return;
+    amor.textContent = 'Quick Amor: ' + (quick ? 'an' : 'aus');
+    amor.setAttribute('aria-pressed', quick ? 'true' : 'false');
+    amor.disabled = linked;
   }
 
   function armQuiet(on) {
@@ -1039,6 +1065,9 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
   document.getElementById('set-wolf').addEventListener('click', function () {
     act({ type: 'toggle-wolf-action' });
   });
+  document.getElementById('set-amor').addEventListener('click', function () {
+    act({ type: 'toggle-quick-amor' });
+  });
 
   var bugBtn = document.getElementById('bug-btn');
   var bugPanel = document.getElementById('bug-panel');
@@ -1104,6 +1133,10 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     }
     if (state && (state.screen === 'lobby' || state.screen === 'setup')) {
       state.selfTell = !!(savedSetup && savedSetup.selfTell);
+      state.showWolfAction = !!(savedSetup && savedSetup.showWolfAction === true);
+      state.quickAmor = !savedSetup || savedSetup.quickAmor !== false;
+      if (savedSetup && 'seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
+      if (savedSetup && 'rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
     }
     if (state.screen === 'setup') rememberSetup();
     booting = false;

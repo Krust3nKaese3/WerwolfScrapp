@@ -445,6 +445,44 @@ test('Angefangener Hexenzug bleibt beim Wechsel erhalten', function () {
   assert.strictEqual(state.poisons.length, 0);
 });
 
+test('Quick Amor aus ruft Amor in Nacht 1 vor den Wölfen und später nur zum Schein', function () {
+  const counts = blankCounts();
+  counts.werwolf = 1;
+  counts.amor = 1;
+  counts.dorfbewohner = 2;
+  const state = make(['Wolf', 'Amor', 'Anna', 'Bert'], counts, { selfTell: true, rolePool: false, quickAmor: false });
+  setRoles(state, ['werwolf', 'amor', 'dorfbewohner', 'dorfbewohner']);
+  state.players[1].amorLinked = false;
+  W.beginNight(state);
+  const script = W.narratorScript(state);
+  assert.strictEqual(script[0].role, 'amor');
+  assert.strictEqual(script[0].quiet, false);
+  assert.ok(script.findIndex(function (row) { return row.role === 'werwolf'; }) > 0);
+  W.send(state, { type: 'ack' });
+  assert.strictEqual(W.view(state).prompt.kind, 'amor');
+  W.send(state, { type: 'confirm', ids: [3, 4] });
+  assert.strictEqual(state.bonds.length, 1);
+  assert.strictEqual(state.wolfVotes[1], undefined);
+  let guard = 0;
+  while (state.screen === 'night' && !(W.view(state).prompt && W.view(state).prompt.kind === 'wolf')) {
+    const view = W.view(state);
+    if (view.step === 'sheet' || view.step === 'call') W.send(state, { type: 'ack' });
+    else if (view.prompt && (view.prompt.kind === 'sleep' || view.prompt.kind === 'love')) W.send(state, { type: 'ack' });
+    else W.send(state, { type: 'ack' });
+    if (++guard > 20) throw new Error(JSON.stringify(W.view(state)));
+  }
+  assert.strictEqual(W.view(state).prompt.kind, 'wolf');
+  assert.strictEqual(state.bonds.length, 1);
+  assert.strictEqual(state.wolfVotes[1], undefined);
+  W.beginNight(state);
+  assert.strictEqual(state.nightNumber, 2);
+  const later = W.narratorScript(state);
+  assert.ok(later.some(function (row) { return row.role === 'amor'; }));
+  W.send(state, { type: 'ack' });
+  assert.notStrictEqual(W.view(state).prompt && W.view(state).prompt.kind, 'amor');
+  assert.strictEqual(state.players[1].amorLinked, true);
+});
+
 test('Schalter merkt sich nur ein zusätzliches Feld, alte Schlüssel bleiben', function () {
   const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
   assert.ok(src.indexOf("var LOBBY_KEY = 'werwolf.lobby.v1'") >= 0);
@@ -453,6 +491,8 @@ test('Schalter merkt sich nur ein zusätzliches Feld, alte Schlüssel bleiben', 
   assert.ok(src.indexOf("var SETUP_KEY = 'werwolf.setup.v1'") >= 0);
   assert.ok(src.indexOf('selfTell') >= 0);
   assert.ok(src.indexOf('Wir erzählen selber') >= 0);
+  assert.ok(src.indexOf('quickAmor') >= 0);
+  assert.ok(src.indexOf("var SETUP_KEY = 'werwolf.setup.v1'") >= 0);
 });
 
 console.log(passed + ' narrator tests ok');
