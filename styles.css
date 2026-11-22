@@ -237,6 +237,17 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
 .role-name { font-weight: 650; }
 .mayor { color: var(--accent); }
 .big-role { font-size: 36px; line-height: 1.1; margin: 4px 0; font-weight: 750; letter-spacing: -0.03em; }
+.confirm-role { display: flex; flex-direction: column; gap: 14px; align-items: stretch; }
+.confirm-name {
+  font-size: 44px;
+  line-height: 1.05;
+  margin: 8px 0 4px;
+  font-weight: 750;
+  letter-spacing: -0.04em;
+  text-align: center;
+  color: var(--text);
+}
+.btn.xl { min-height: 76px; font-size: 22px; }
 .seer-huge { font-size: 64px; font-weight: 800; }
 .victim-huge { font-size: 64px; font-weight: 800; text-align: center; line-height: 1.05; margin: 4px 0; letter-spacing: -0.03em; }
 .lover-card { text-align: center; background: var(--card); border-radius: var(--radius); padding: 18px 12px; box-shadow: var(--shadow); }

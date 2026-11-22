@@ -660,6 +660,15 @@ if (!(poolOn && role === 'werwolf')) sum += count;
   }
 
   function renderReveal() {
+    if (state.step === 'confirm') {
+      var named = player(state.activeId);
+      if (!named) return header('Rollen', 'Werwolf');
+      return header('Rollen', named.name) +
+        '<section class="stage card confirm-role">' +
+        '<p class="confirm-name">' + esc(named.name) + '</p>' +
+        '<button type="button" class="btn xl" data-act="reveal-see">Rolle ansehen</button>' +
+        '<button type="button" class="btn secondary" data-act="back">Zurück</button></section>';
+    }
     if (state.step === 'love') {
       var lover = player(state.activeId);
       if (!lover) return header('Rollen', 'Werwolf');

@@ -189,6 +189,7 @@ async function revealEveryone(page) {
     const unseen = page.locator('button[data-act="reveal-pick"]:not(.seen)');
     if (!(await unseen.count())) break;
     await unseen.first().click();
+    await page.getByRole('button', { name: 'Rolle ansehen' }).click();
     await page.getByRole('button', { name: 'Verstanden, verdecken' }).click();
   }
 }
@@ -265,6 +266,7 @@ async function checkSetupPersists(browser, base) {
 }
 
 async function finishCard(page) {
+  await page.getByRole('button', { name: 'Rolle ansehen' }).click();
   if (await page.getByText('Du bist Amor').count()) {
     const choices = page.locator('button[data-act="select"]');
     await choices.nth(0).click();

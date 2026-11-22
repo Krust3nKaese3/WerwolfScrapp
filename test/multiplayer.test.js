@@ -158,6 +158,7 @@ async function main() {
   const hostBox = { state: W.createGame(names, countsFor(2, 6), { quickAmor: true, showWolfAction: false, rng: function () { return 0; } }) };
   hostBox.state.players.forEach(function (p) {
     W.send(hostBox.state, { type: 'reveal-pick', id: p.id });
+    W.send(hostBox.state, { type: 'reveal-see' });
     W.send(hostBox.state, { type: 'ack' });
   });
   W.send(hostBox.state, { type: 'start-game' });
@@ -320,6 +321,53 @@ async function main() {
     });
   });
   assert.deepStrictEqual(leaked, []);
+
+  const gate = { state: W.createGame(['Ida', 'Jens', 'Kai', 'Lea'], countsFor(1, 3), { quickAmor: true, rng: function () { return 0; } }) };
+  const gateHub = N.createHub();
+  const gateHostMp = gateHub.device('Host');
+  const gateGuestMp = gateHub.device('Gast');
+  const gatePriv = [];
+  const gateSend = gateHostMp.send;
+  gateHostMp.send = function (data) {
+    gatePriv.push(JSON.parse(JSON.stringify(data)));
+    return gateSend.apply(gateHostMp, arguments);
+  };
+  const gateHost = N.createSession(gateHostMp, boxHooks(gate));
+  const gateGuestBox = { state: null };
+  const gateGuest = N.createSession(gateGuestMp, boxHooks(gateGuestBox));
+  await gateHost.host();
+  await gateGuest.joinQr(gateHost.roomInfo().qrPayload, 'Gast');
+  const ida = person(gate.state, 'Ida');
+  const jens = person(gate.state, 'Jens');
+  gateGuest.local({ type: 'reveal-pick', id: ida.id });
+  assert.strictEqual(gateHost.lockOwner(ida.id), gateGuest.selfId());
+  assert.strictEqual(gate.state.step, 'list');
+  assert.ok(!gate.state.peeked || !gate.state.peeked[ida.id]);
+  assert.strictEqual(gateGuestBox.state.step, 'confirm');
+  assert.deepStrictEqual(secretProblems(gateGuestBox.state), []);
+  assert.strictEqual(gatePriv[gatePriv.length - 1].t, 'priv');
+  assert.deepStrictEqual(secretProblems(gatePriv[gatePriv.length - 1]), []);
+  gateGuest.local({ type: 'back' });
+  assert.strictEqual(gateHost.lockOwner(ida.id), null);
+  assert.strictEqual(gateGuestBox.state.step, 'list');
+  assert.ok(!gateGuestBox.state.remoteHold);
+  gateHost.local({ type: 'reveal-pick', id: ida.id });
+  assert.strictEqual(gateHost.display().step, 'confirm');
+  assert.strictEqual(gateHost.lockOwner(ida.id), gateHost.selfId());
+  gateHost.local({ type: 'reveal-see' });
+  assert.ok(gateHost.display().step === 'show' || gateHost.display().step === 'link');
+  assert.ok(person(gateHost.display(), 'Ida').role);
+  assert.strictEqual(gate.state.step, 'list');
+  gateGuest.local({ type: 'reveal-pick', id: jens.id });
+  assert.strictEqual(gateGuestBox.state.step, 'confirm');
+  assert.deepStrictEqual(secretProblems(gateGuestBox.state), []);
+  gateGuest.local({ type: 'reveal-see' });
+  assert.ok(gateGuestBox.state.step === 'show' || gateGuestBox.state.step === 'link');
+  assert.ok(person(gateGuestBox.state, 'Jens').role);
+  assert.deepStrictEqual(gateGuestBox.state.players.filter(function (p) { return p.name !== 'Jens' && p.role; }), []);
+  gateGuest.local({ type: 'back' });
+  assert.strictEqual(gateHost.lockOwner(jens.id), null);
+  assert.ok(!gate.state.revealed || !gate.state.revealed[jens.id]);
 
   console.log('multiplayer ok');
 }

@@ -56,6 +56,7 @@ function startNight(state, pairs) {
   if (state.screen === 'reveal') {
     state.players.forEach(function (p) {
       W.send(state, { type: 'reveal-pick', id: p.id });
+      if (state.step === 'confirm') W.send(state, { type: 'reveal-see' });
       if (state.step === 'link') {
         const others = state.players.filter(function (one) { return one.id !== p.id; });
         const pair = (pairs && pairs[p.id]) || [p.id, others[0].id];
@@ -658,10 +659,18 @@ test('Namenliste: Rolle bleibt antippbar, Nachtname nicht', function () {
   const state = game(['A', 'B', 'C', 'D']);
   setRoles(state, ['dorfbewohner', 'dorfbewohner', 'dorfbewohner', 'werwolf']);
   W.send(state, { type: 'reveal-pick', id: 1 });
+  assert.strictEqual(state.step, 'confirm');
+  W.send(state, { type: 'back' });
+  assert.strictEqual(state.step, 'list');
+  assert.ok(!state.revealed[1]);
+  assert.ok(!state.peeked || !state.peeked[1]);
+  W.send(state, { type: 'reveal-pick', id: 1 });
+  W.send(state, { type: 'reveal-see' });
   assert.strictEqual(state.step, 'show');
   W.send(state, { type: 'ack' });
   assert.strictEqual(state.revealed[1], true);
   W.send(state, { type: 'reveal-pick', id: 1 });
+  W.send(state, { type: 'reveal-see' });
   assert.strictEqual(state.step, 'show');
   assert.strictEqual(W.view(state).playerId, 1);
   W.send(state, { type: 'ack' });
@@ -671,6 +680,7 @@ test('Namenliste: Rolle bleibt antippbar, Nachtname nicht', function () {
   state.players.forEach(function (p) {
     if (!state.revealed[p.id]) {
       W.send(state, { type: 'reveal-pick', id: p.id });
+      W.send(state, { type: 'reveal-see' });
       W.send(state, { type: 'ack' });
     }
   });
@@ -1042,6 +1052,8 @@ test('Quick Amor ist an, fehlt das Feld, bleibt das Aufdecken', function () {
   assert.strictEqual(state.quickAmor, true);
   delete state.quickAmor;
   W.send(state, { type: 'reveal-pick', id: 2 });
+  assert.strictEqual(state.step, 'confirm');
+  W.send(state, { type: 'reveal-see' });
   assert.strictEqual(state.step, 'link');
   W.send(state, { type: 'select', id: 3 });
   W.send(state, { type: 'toggle-quick-amor' });
@@ -1058,6 +1070,7 @@ test('Quick Amor ist an, fehlt das Feld, bleibt das Aufdecken', function () {
   W.send(state, { type: 'start-game' });
   assert.strictEqual(state.screen, 'reveal');
   W.send(state, { type: 'reveal-pick', id: 2 });
+  W.send(state, { type: 'reveal-see' });
   assert.strictEqual(state.step, 'link');
   W.send(state, { type: 'confirm', ids: [3, 4] });
   assert.ok(state.players[1].amorLinked);
@@ -1073,6 +1086,7 @@ test('Quick Amor aus verbindet in Nacht 1 vor den Wölfen und vergisst niemanden
   state.quickAmor = false;
   state.players.forEach(function (p) {
     W.send(state, { type: 'reveal-pick', id: p.id });
+    W.send(state, { type: 'reveal-see' });
     assert.notStrictEqual(state.step, 'link');
     W.send(state, { type: 'ack' });
   });
