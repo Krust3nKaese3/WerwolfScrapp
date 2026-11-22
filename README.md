@@ -36,7 +36,7 @@ Nach einem Push die OpenScrapp in OpenScr mit ⟳ aktualisieren.
 
 Der Schalter steht auf dem Startbildschirm und ist standardmäßig **aus**. Aus bleibt der bisherige Ablauf, inklusive Namensliste in der Nacht. An liegt unter `werwolf.setup.v1` im Feld `selfTell`. Die Schlüssel `werwolf.lobby.v1`, `werwolf.setup.v1`, `werwolf.game.v1` und `werwolf.scores.v1` bleiben.
 
-Der Erzähler trägt keinen Namen ein und bekommt keine Rolle. Zuerst geht das Handy wie immer herum: dieselbe Namensliste, und bei Quick Amor verbindet Amor beim Aufdecken. Danach behält nur der Erzähler das Handy. Er sieht eine Übersicht Name, Rolle, lebend oder tot.
+Der Erzähler trägt keinen Namen ein und bekommt keine Rolle. Zuerst geht das Handy wie immer herum: dieselbe Namensliste, und bei Quick Amor verbindet Amor beim Aufdecken. Danach behält nur der Erzähler das Handy. Er sieht eine Übersicht Name, Rolle, lebend oder tot. Die Statistik gilt in beiden Modi.
 
 In der Nacht ruft die App jede Karte auf, die im Setup möglich ist, in fester Reihenfolge. Bei „Mehr Rollen als Spieler“ sind das beim Werwolf das Maximum, bei den anderen Rollen die eingestellte Anzahl. Übrige Karten und tote Rollen werden mit aufgerufen. Der Erzähler liest den Aufruftext vor, zum Beispiel „Seherin, wach auf.“ Lebt jemand mit dieser Karte, tippt der Erzähler das Ziel aus der Namensliste. Zurück vor dem Bestätigen verbraucht nichts. Bei einer aussortierten oder toten Karte steht klein „Niemand handelt.“, der Bildschirm bleibt der Aufruf, und **Weiter** wird kurz gesperrt, damit der Takt gleich bleibt. Das Sehergebnis erscheint groß, damit der Erzähler es der Seherin zeigen kann. Die lebendige Hexe sieht nach den Wölfen groß die Namen der Wolfsopfer und heilt nur aus dieser Liste. Aufgelöst wird mit derselben Nachtlogik wie ohne Erzähler.
 
@@ -177,9 +177,35 @@ Geprüft nach der Tagesauflösung und am Morgen nach Schüssen und Wiederbelebun
 
 Start ist nur erlaubt, wenn mindestens ein Werwolf da ist, mindestens eine Person auf der Dorfseite, und die Wölfe weniger sind als die Dorfseite. Der Politiker ist dabei keine Dorfseite. Mindestens 4 Namen, nach oben offen.
 
+## Spieler
+
+Neue Namen brauchen beim ersten Mal Vor- und Nachname, beide ohne Leerzeichen am Rand. Die Person liegt unter `werwolf.players.v1` mit stabiler id:
+
+```json
+{"v":1,"players":[{"id":"p_<Zeit in base36><4 base36-Zeichen>","first":"Maximilian","last":"Bausch","created":1710000000000}]}
+```
+
+Dieselbe Schreibweise, unabhängig von Großbuchstaben und Akzenten, ist dieselbe Person. Die id ändert sich nicht. In der Runde steht nur der Vorname. Haben zwei Personen im selben Spiel denselben Vornamen, bekommen alle Betroffenen den Anfangsbuchstaben des Nachnamens dazu (`Max B.`). Ist auch der gleich, steht der volle Nachname da.
+
+Das Feld schlägt gespeicherte Personen vor, sobald die Eingabe im Vornamen, im Nachnamen oder in `Vorname Nachname` steckt. Präfixe stehen vor Teiltreffern, danach geht es alphabetisch. Wer schon in der Runde sitzt, erscheint nicht. Die Logik liegt in `players.js` (`normalize`, `search`, `displayNames`, `createPlayer`) und ist absichtlich ohne Abhängigkeiten, damit Song raten dieselbe Datei nutzen kann.
+
+Alte Lobbys und Spielstände mit reinen Namen laden weiter. Beim nächsten Öffnen wird so ein Name einem gespeicherten Spieler zugeordnet, wenn Vor- und Nachname oder ein einzelner Vorname eindeutig passen. Sonst wird ein Spieler angelegt. Ein einzelnes altes Wort wird dabei Vor- und Nachname, damit die Anzeige der Vorname bleibt.
+
+## Statistik
+
+Jedes beendete Spiel, normal oder mit Erzähler, hängt ein kompaktes Protokoll an `werwolf.history.v1`. Darin stehen Spieler-ids, ausgeteilte und letzte Rolle, Nachtaktionen mit Täter, Ziel und Runde, Tode mit Runde und Ursache, Heilungen, Abstimmungen, Siegerteam, Siegerspieler, Zeitpunkt und Modus. Die Ansicht rechnet nur daraus. Vom Startbildschirm führt **Statistik** zur Namensliste, ein Tipp öffnet die Person, **Zurück** verbraucht nichts und lässt die Runde stehen.
+
+Pro Person und Rolle: wie oft bekommen, wie oft gewonnen, Siegquote, wie oft mit dieser Rolle gestorben, durchschnittliche Todesrunde, wie oft geheilt, Kills mit der Rollenfähigkeit. Die Kills trennen eigene Teammitglieder und andere Rollen, aufgeschlüsselt nach Rolle. Dazu die durchschnittliche Todesrunde über alle Rollen und die Gesamtwerte Spiele und Siege. Gewonnen wird der Rolle zugerechnet, die die Person zu Beginn hatte. Gestorben wird der Rolle zugerechnet, die sie im Tod hatte. Ein Kill zählt für die Rolle, mit der die Fähigkeit eingesetzt wurde. Werwölfe, die das getroffene Haus gewählt haben, teilen sich den Kill. Die Hexe bekommt ihre Giftkills, der Jäger seinen Schuss, der Russe die Kugel im Duell. Liebe und die Abstimmung sind keine Fähigkeitskills. Geheilt ist, wie oft ein Trank den Tod in dieser Nacht aufgehalten hat.
+
+Spieler-ids und die Statistik bleiben auf dem Host-Handy. Das Protokoll nennt nur ids, Rollen und Zahlen, damit es später geräteunabhängig zu einem Mehrspieler-Stand passt. Mehrspieler selbst gibt es hier nicht.
+
 ## Speicher und Fehlerbericht
 
-Namen liegen unter `werwolf.lobby.v1`, sobald jemand einen Namen hinzufügt, ändert sich die Liste also sofort. Die Rollenwahl (Anzahlen, Einsätze, Heiltränke, Pool, Wolfsminimum und -maximum, Seherin genau) liegt unter `werwolf.setup.v1` und wird bei jeder Änderung gespeichert. Sie kommt beim Start, beim erneuten Öffnen der Rollenwahl und bei einem neuen Spiel wieder. Das laufende Spiel liegt unter `werwolf.game.v1`. Der gespeicherte Rollenschlüssel der Gastgeberin bleibt `nutte`, damit alte Spielstände und Rollenwahlen weiter laden. Punkte liegen unter `werwolf.scores.v1`, pro Name, und bleiben über Spiele und Neustarts. Home und „Spiel abbrechen“ löschen nur das Spiel, nicht die Namen und nicht die Punkte. **Punkte zurücksetzen** fragt nach und löscht erst nach der Bestätigung. Ein Nachtstand aus der Rohfassung, der noch in der ersten Runde hängt, wird auf den offenen Zug gesetzt. Ein Stand aus der zweiten Runde geht zurück in die Lobby, die Namen bleiben.
+Namen liegen unter `werwolf.lobby.v1`, sobald jemand einen Namen hinzufügt, ändert sich die Liste also sofort. Die Rollenwahl (Anzahlen, Einsätze, Heiltränke, Pool, Wolfsminimum und -maximum, Seherin genau) liegt unter `werwolf.setup.v1` und wird bei jeder Änderung gespeichert. Sie kommt beim Start, beim erneuten Öffnen der Rollenwahl und bei einem neuen Spiel wieder. Das laufende Spiel liegt unter `werwolf.game.v1`. Der gespeicherte Rollenschlüssel der Gastgeberin bleibt `nutte`, damit alte Spielstände und Rollenwahlen weiter laden. Punkte liegen unter `werwolf.scores.v1`, pro Name, und bleiben über Spiele und Neustarts. Spieler liegen unter `werwolf.players.v1`, die Protokolle unter `werwolf.history.v1`. Die vier älteren Schlüssel bleiben, wie sie waren.
+
+OpenScr prüft jeden Speicherwert einzeln: höchstens 256 KiB Text (`STORAGE_LIMITS.maxValueBytes` in `src/bridge/allowlist.ts`). Eine Summe über alle Schlüssel gibt es in der Bridge nicht. Ein Protokoll ist kurz gehalten, ids statt Namen, und liegt grob bei 1 bis 3 KB. Detailspiele bleiben stehen, bis es mehr als **60** sind oder das Protokoll **200 KiB** überschreitet. Dann werden die ältesten Spiele zu Summen pro Person und Rolle gefaltet. Spiele, Siege, Tode, Todesrunden, Heilungen und Kills bleiben dadurch richtig. Die Einzelereignisse der gefalteten Spiele sind danach weg, neue Auswertungen sehen sie nicht mehr. 60 mal 3 KB bleiben unter den 200 KiB, und die 200 KiB bleiben unter der harten Grenze von 256 KiB. Fehlt die Bridge, gilt der `localStorage` des Browsers, üblicherweise etwa 5 MB für die ganze Origin. Auch dann faltet derselbe Schlüssel bei 60 Spielen oder 200 KiB, weil das Protokoll in einem Wert liegt.
+
+Home und „Spiel abbrechen“ löschen nur das Spiel, nicht die Namen, nicht die Punkte und nicht die Statistik. **Punkte zurücksetzen** fragt nach und löscht erst nach der Bestätigung die Punkte, nicht die Spieler und nicht die Protokolle. Ein Nachtstand aus der Rohfassung, der noch in der ersten Runde hängt, wird auf den offenen Zug gesetzt. Ein Stand aus der zweiten Runde geht zurück in die Lobby, die Namen bleiben.
 
 Das Käfer-Symbol sitzt auf jedem Screen, ohne selbst eine Rolle zu verraten. Es öffnet einen Bericht mit Beschreibungsfeld. **Kopieren** legt einen Markdown-Block in die Zwischenablage: Beschreibung, Version, Zeitpunkt, Konfiguration, den kompletten Spielstand und das Aktionsprotokoll (Bildwechsel, Tipps, Nachtaktionen, Auflösung, Fehler mit Stack). Zurück schließt den Bericht und lässt das Spiel, wie es war. Der Text enthält Geheimnisse.
 
@@ -210,8 +236,13 @@ WerwolfScrapp/
 ├── index.html
 ├── styles.css
 ├── app.js
+├── players.js
+├── stats.js
 ├── game.js
 ├── test/logic.test.js
+├── test/players.test.js
+├── test/players-ui.test.js
+├── test/stats.test.js
 ├── test/narrator.test.js
 ├── test/narrator-ui.test.js
 └── README.md
@@ -219,7 +250,7 @@ WerwolfScrapp/
 
 `openscr.json` ist das Manifest. `everyapp.json` hat denselben Inhalt und bleibt, damit ältere installierte Builds die OpenScrapp weiter laden. Der Anzeigename darin ist **Werwolf**.
 
-`node test/logic.test.js` prüft die Spiellogik. `node test/narrator.test.js` prüft den Modus „Wir erzählen selber“.
+`node test/logic.test.js` prüft die Spiellogik. `node test/players.test.js` prüft Spieler, `node test/stats.test.js` die Protokolle. `node test/narrator.test.js` prüft den Modus „Wir erzählen selber“.
 
 ## Festgelegte Regeldetails
 

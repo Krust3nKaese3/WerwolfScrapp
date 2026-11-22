@@ -12,6 +12,12 @@ const types = {
   '.json': 'application/json'
 };
 
+async function addNamed(page, name) {
+  await page.fill('#name-input', name);
+  await page.fill('#last-input', 'Test');
+  await page.locator('#name-form button').click();
+}
+
 function startServer() {
   const server = http.createServer(function (req, res) {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -133,8 +139,7 @@ async function checkFreshWolves(browser, base) {
   const opened = await open(browser, base, null);
   const page = opened.page;
   for (const name of ['Anna', 'Bea', 'Chris', 'Dora']) {
-    await page.fill('#name-input', name);
-    await page.locator('#name-form button').click();
+    await addNamed(page, name);
   }
   await page.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   const pool = page.getByRole('button', { name: /Mehr Rollen als Spieler/ });
@@ -154,8 +159,7 @@ async function checkFreshWolves(browser, base) {
   const many = await open(browser, base, null);
   const pack = many.page;
   for (const name of ['Anna', 'Bea', 'Chris', 'Dora', 'Erik']) {
-    await pack.fill('#name-input', name);
-    await pack.locator('#name-form button').click();
+    await addNamed(pack, name);
   }
   await pack.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   const poolMany = pack.getByRole('button', { name: /Mehr Rollen als Spieler/ });
@@ -218,8 +222,7 @@ async function checkSetupPersists(browser, base) {
   assert.ok((await tell.innerText()).includes('aus'));
   await tell.click();
   for (const name of ['Anna', 'Bea', 'Chris', 'Dora']) {
-    await page.fill('#name-input', name);
-    await page.locator('#name-form button').click();
+    await addNamed(page, name);
   }
   await page.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   const roles = await page.locator('#app').innerText();
@@ -278,8 +281,7 @@ async function checkUndoReveal(browser, base) {
   const opened = await open(browser, base, null);
   const page = opened.page;
   for (const name of ['Anna', 'Bea', 'Chris', 'Dora']) {
-    await page.fill('#name-input', name);
-    await page.locator('#name-form button').click();
+    await addNamed(page, name);
   }
   await page.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   const pool = page.getByRole('button', { name: /Mehr Rollen als Spieler/ });

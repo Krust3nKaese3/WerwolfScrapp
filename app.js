@@ -4,10 +4,18 @@
   var GAME_KEY = 'werwolf.game.v1';
   var SCORE_KEY = 'werwolf.scores.v1';
   var SETUP_KEY = 'werwolf.setup.v1';
+  var PLAYERS_KEY = 'werwolf.players.v1';
+  var HISTORY_KEY = 'werwolf.history.v1';
   var STORAGE_TIMEOUT_MS = 4000;
+  var P = window.WerwolfPlayers;
+  var S = window.WerwolfStats;
   var app = document.getElementById('app');
   var state = W.newLobby();
   var scores = {};
+  var roster = { v: 1, players: [] };
+  var history = S.emptyHistory();
+  var draft = { query: '', last: '' };
+  var statsMode = null;
   var confirmReset = false;
   var saveReady = false;
   var booting = true;
@@ -81,7 +89,13 @@
     return {
       v: 1,
       screen: 'lobby',
-      players: (state.players || []).map(function (p) { return { id: p.id, name: p.name }; }),
+      players: (state.players || []).map(function (p) {
+        var seat = { id: p.id, name: p.name };
+        if (p.pid) seat.pid = p.pid;
+        if (p.first) seat.first = p.first;
+        if (p.last) seat.last = p.last;
+        return seat;
+      }),
       nextId: state.nextId || 1,
       log: state.log || []
     };
@@ -152,6 +166,10 @@
         return writeKey(SCORE_KEY, points);
       }).then(function () {
         return writeKey(SETUP_KEY, setup);
+      }).then(function () {
+        return writeKey(PLAYERS_KEY, roster);
+      }).then(function () {
+        return writeKey(HISTORY_KEY, history);
       });
     }).then(function () {}, function () {});
   }
@@ -160,6 +178,72 @@
     if (!state || state.screen !== 'end') return;
     var result = W.awardOnce(scores, state);
     scores = result.scores;
+    recordHistory();
+  }
+
+  function recordHistory() {
+    if (!state || state.screen !== 'end' || state.historySaved || !Array.isArray(state.book)) return;
+    history = S.appendGame(history, S.buildRecord(state, Date.now()));
+    state.historySaved = true;
+  }
+
+  function loadRoster(raw) {
+    var players = raw && Array.isArray(raw.players) ? raw.players : [];
+    return {
+      v: 1,
+      players: players.filter(function (player) {
+        return player && player.id && String(player.first || '').trim() && String(player.last || '').trim();
+      }).map(function (player) {
+        return {
+          id: String(player.id),
+          first: String(player.first).trim(),
+          last: String(player.last).trim(),
+          created: Number(player.created) || 0
+        };
+      })
+    };
+  }
+
+  function loadHistory(raw) {
+    if (!raw || typeof raw !== 'object') return S.emptyHistory();
+    return {
+      v: 1,
+      games: Array.isArray(raw.games) ? raw.games : [],
+      sum: raw.sum && typeof raw.sum === 'object' ? raw.sum : {}
+    };
+  }
+
+  function refreshNames() {
+    var rows = [];
+    (state.players || []).forEach(function (player) {
+      if (player.pid && player.first) rows.push({ id: player.pid, first: player.first, last: player.last || '' });
+    });
+    var labels = P.displayNames(rows);
+    (state.players || []).forEach(function (player) {
+      if (player.pid && labels[player.pid]) player.name = labels[player.pid];
+    });
+  }
+
+  function attachIdentities(rename) {
+    (state.players || []).forEach(function (seat) {
+      if (seat.pid) {
+        var known = null;
+        for (var i = 0; i < roster.players.length; i++) {
+          if (roster.players[i].id === seat.pid) known = roster.players[i];
+        }
+        if (known) {
+          if (!seat.first) seat.first = known.first;
+          if (!seat.last) seat.last = known.last;
+        }
+        return;
+      }
+      var player = P.migrateName(roster, seat.name, Date.now(), Math.random);
+      if (!player) return;
+      seat.pid = player.id;
+      seat.first = player.first;
+      seat.last = player.last;
+    });
+    if (rename) refreshNames();
   }
 
   var rendering = false;
@@ -341,11 +425,15 @@
       (bridgeStorage() ? '<p class="hint">Namen und ein laufendes Spiel bleiben in OpenScr gespeichert, auch nach dem Schließen.</p>'
         : '<p class="hint">Im Browser bleibt der Stand in diesem Tab. In OpenScr übersteht er das Schließen der App.</p>') +
       errorHtml() +
-      '<form id="name-form" class="stack"><input id="name-input" type="text" maxlength="16" autocomplete="off" placeholder="Name" aria-label="Name">' +
+      '<form id="name-form" class="stack"><input id="name-input" type="text" maxlength="32" autocomplete="off" autocapitalize="words" placeholder="Vorname oder Suche" aria-label="Vorname oder Suche" value="' + esc(draft.query) + '">' +
+      '<div id="name-suggest" class="suggest">' + suggestHtml(draft.query) + '</div>' +
+      '<input id="last-input" type="text" maxlength="32" autocomplete="off" autocapitalize="words" placeholder="Nachname" aria-label="Nachname" value="' + esc(draft.last) + '">' +
       '<button class="btn" type="submit">Name hinzufügen</button></form>' +
+      '<p class="hint">Beim ersten Mal Vor- und Nachname. Angezeigt wird der Vorname. Gleiche Vornamen bekommen den Anfangsbuchstaben.</p>' +
       names +
       '<button type="button" class="btn" data-act="to-setup"' + (state.players.length < 4 ? ' disabled' : '') + '>Weiter zu den Rollen</button>' +
       '<p class="hint">Mindestens 4 Mitspieler. Aktuell ' + state.players.length + '.</p>' +
+      '<button type="button" class="btn secondary" data-act="stats">Statistik</button>' +
       '<h2>Punkte</h2>' + scoreboardHtml(false) + resetControl() +
       rulesHtml() +
       '</div>';
@@ -989,13 +1077,138 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       '<button type="button" class="btn secondary" data-act="reset-cancel">Abbrechen</button>';
   }
 
+  function suggestHtml(query) {
+    var exclude = [];
+    (state.players || []).forEach(function (player) { if (player.pid) exclude.push(player.pid); });
+    return P.search(roster.players, query, exclude).slice(0, 6).map(function (player) {
+      return '<button type="button" class="choice" data-act="use-player" data-pid="' + esc(player.id) + '">' +
+        esc(player.first + ' ' + player.last) + '</button>';
+    }).join('');
+  }
+
+  function formatPercent(won, got) {
+    if (!got) return '–';
+    var n = Math.round((won / got) * 1000) / 10;
+    return (n % 1 ? n.toFixed(1).replace('.', ',') : String(n)) + ' %';
+  }
+
+  function formatAvg(sum, count) {
+    if (!count) return '–';
+    var n = Math.round((sum / count) * 10) / 10;
+    return n % 1 ? n.toFixed(1).replace('.', ',') : String(n);
+  }
+
+  function otherKillHtml(other) {
+    var keys = Object.keys(other || {}).filter(function (role) { return other[role]; });
+    keys.sort(function (a, b) {
+      var ia = W.ROLE_ORDER.indexOf(a);
+      var ib = W.ROLE_ORDER.indexOf(b);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    if (!keys.length) return '<p class="hint">Keine.</p>';
+    return keys.map(function (role) {
+      return '<p>' + esc(W.roleName(role)) + ': ' + other[role] + '</p>';
+    }).join('');
+  }
+
+  function renderStatPlayer(pid) {
+    var player = null;
+    roster.players.forEach(function (candidate) { if (candidate.id === pid) player = candidate; });
+    if (!player) {
+      statsMode = 'list';
+      return renderStats();
+    }
+    var stats = S.playerStats(history, pid);
+    var roles = W.ROLE_ORDER.filter(function (role) { return stats.roles[role]; });
+    Object.keys(stats.roles).forEach(function (role) {
+      if (roles.indexOf(role) < 0) roles.push(role);
+    });
+    var cards = roles.map(function (role) {
+      var row = stats.roles[role];
+      return '<section class="card stack"><h2>' + roleIcon(role) + ' ' + esc(W.roleName(role)) + '</h2>' +
+        '<p>Bekommen: ' + row.got + ' · Siege: ' + row.won + ' · Siegquote: ' + formatPercent(row.won, row.got) + '</p>' +
+        '<p>Mit der Rolle gestorben: ' + row.deaths + ' · Ø Todesrunde: ' + formatAvg(row.deathRoundSum, row.deaths) + '</p>' +
+        '<p>Geheilt: ' + row.healed + '</p>' +
+        '<p>Mit der Fähigkeit getötet, eigenes Team: ' + row.teamKills + '</p>' +
+        '<p>Andere Rollen getötet:</p>' + otherKillHtml(row.otherKills) + '</section>';
+    }).join('');
+    return header('Statistik', player.first + ' ' + player.last) +
+      '<div class="stack"><section class="card stack"><p>Spiele: ' + stats.games + '</p><p>Siege: ' + stats.wins + '</p>' +
+      '<p>Siegquote: ' + formatPercent(stats.wins, stats.games) + '</p>' +
+      '<p>Ø Todesrunde: ' + formatAvg(stats.deathRoundSum, stats.deaths) + '</p></section>' +
+      (cards || '<p class="hint">Noch keine Rolle in einem beendeten Spiel.</p>') +
+      '<button type="button" class="btn secondary" data-act="stats-back">Zurück</button></div>';
+  }
+
+  function renderStats() {
+    if (statsMode !== 'list') return renderStatPlayer(statsMode);
+    var people = roster.players.slice().sort(function (a, b) {
+      var ka = P.normalize(a.first + ' ' + a.last);
+      var kb = P.normalize(b.first + ' ' + b.last);
+      if (ka < kb) return -1;
+      if (ka > kb) return 1;
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+    });
+    var rows = people.map(function (player) {
+      var stats = S.playerStats(history, player.id);
+      var meta = stats.games ? stats.games + ' Spiele · ' + stats.wins + ' Siege' : 'Noch kein Spiel';
+      return '<button type="button" class="choice" data-act="open-player" data-pid="' + esc(player.id) + '"><span><span class="who">' +
+        esc(player.first + ' ' + player.last) + '</span><span class="meta">' + esc(meta) + '</span></span></button>';
+    }).join('');
+    return header('Statistik', 'Spieler') +
+      '<div class="stack"><p class="lead">Tippe einen Namen. Alle Zahlen kommen aus den beendeten Spielen.</p>' +
+      (rows || '<p class="hint">Noch niemand gespeichert. Ein neuer Name landet hier, sobald Vor- und Nachname erfasst sind.</p>') +
+      '<button type="button" class="btn secondary" data-act="stats-back">Zurück</button></div>';
+  }
+
+  function takePlayer(pid) {
+    var player = null;
+    for (var i = 0; i < roster.players.length; i++) if (roster.players[i].id === pid) player = roster.players[i];
+    if (!player) return;
+    draft.query = '';
+    draft.last = '';
+    act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, name: player.first });
+  }
+
+  function submitName() {
+    var firstEl = document.getElementById('name-input');
+    var lastEl = document.getElementById('last-input');
+    if (firstEl) draft.query = firstEl.value;
+    if (lastEl) draft.last = lastEl.value;
+    var first = String(draft.query || '').trim().slice(0, 32);
+    var last = String(draft.last || '').trim().slice(0, 32);
+    if (!first) {
+      state.error = 'Bitte einen Vornamen eingeben.';
+      render();
+      return;
+    }
+    if (!last) {
+      state.error = 'Bitte auch den Nachnamen eingeben.';
+      render();
+      return;
+    }
+    var player;
+    try {
+      player = P.registerPlayer(roster, first, last, Date.now(), Math.random);
+    } catch (error) {
+      state.error = error.message;
+      render();
+      return;
+    }
+    draft.query = '';
+    draft.last = '';
+    act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, name: player.first });
+  }
+
   function render() {
     if (booting) {
       app.innerHTML = '<p class="lead">Laden …</p>';
       return;
     }
+    if (!state || state.screen !== 'lobby') statsMode = null;
     var html = '';
-    if (state.screen === 'lobby') html = renderLobby();
+    if (statsMode && state.screen === 'lobby') html = renderStats();
+    else if (state.screen === 'lobby') html = renderLobby();
     else if (state.screen === 'setup') html = renderSetup();
     else if (state.screen === 'reveal') html = renderReveal();
     else if (state.screen === 'discuss') html = renderDiscuss();
@@ -1045,6 +1258,14 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var el = event.target.closest('[data-act]');
     if (!el || el.disabled) return;
     var type = el.getAttribute('data-act');
+    if (type === 'stats') { statsMode = 'list'; render(); return; }
+    if (type === 'stats-back') {
+      statsMode = statsMode && statsMode !== 'list' ? 'list' : null;
+      render();
+      return;
+    }
+    if (type === 'open-player') { statsMode = el.getAttribute('data-pid'); render(); return; }
+    if (type === 'use-player') { takePlayer(el.getAttribute('data-pid')); return; }
     if (type === 'bump') {
       var role = el.getAttribute('data-role');
       act({ type: 'set-count', role: role, value: (state.counts[role] || 0) + Number(el.getAttribute('data-dir')) });
@@ -1100,8 +1321,17 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var form = event.target;
     if (!form || form.id !== 'name-form') return;
     event.preventDefault();
-    var input = document.getElementById('name-input');
-    act({ type: 'add-name', name: input ? input.value : '' });
+    submitName();
+  });
+
+  app.addEventListener('input', function (event) {
+    var el = event.target;
+    if (!el) return;
+    if (el.id === 'name-input') {
+      draft.query = el.value;
+      var box = document.getElementById('name-suggest');
+      if (box) box.innerHTML = suggestHtml(draft.query);
+    } else if (el.id === 'last-input') draft.last = el.value;
   });
 
   var gearBtn = document.getElementById('gear-btn');
@@ -1170,6 +1400,8 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
 
   async function boot() {
     scores = W.grantPoints(await readKey(SCORE_KEY), []);
+    roster = loadRoster(await readKey(PLAYERS_KEY));
+    history = loadHistory(await readKey(HISTORY_KEY));
     savedSetup = await readKey(SETUP_KEY);
     var savedGame = await readKey(GAME_KEY);
     var savedLobby = await readKey(LOBBY_KEY);
@@ -1179,11 +1411,13 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       if (!state.selection) state.selection = [];
       if (!state.bonds) state.bonds = [];
       W.adoptSaved(state);
+      attachIdentities(false);
     } else if (savedLobby && savedLobby.players) {
       state = W.newLobby();
       state.players = savedLobby.players;
       state.nextId = savedLobby.nextId || (state.players.length + 1);
       state.log = savedLobby.log || [];
+      attachIdentities(true);
     }
     if (state && (state.screen === 'lobby' || state.screen === 'setup')) {
       state.selfTell = !!(savedSetup && savedSetup.selfTell);

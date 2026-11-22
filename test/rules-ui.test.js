@@ -7,6 +7,12 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
+async function addNamed(page, name) {
+  await page.fill('#name-input', name);
+  await page.fill('#last-input', 'Test');
+  await page.locator('#name-form button').click();
+}
+
 function startServer() {
   const server = http.createServer(function (req, res) {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -107,8 +113,7 @@ async function gateAndOrder(browser, base) {
   page.on('pageerror', function (error) { errors.push(String(error)); });
   await page.goto(base);
   for (const name of ['Anna', 'Bea', 'Chris', 'Dora']) {
-    await page.fill('#name-input', name);
-    await page.locator('#name-form button').click();
+    await addNamed(page, name);
   }
   await page.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   const pool = page.getByRole('button', { name: /Mehr Rollen als Spieler/ });

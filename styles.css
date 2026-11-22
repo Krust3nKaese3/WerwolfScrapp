@@ -57,6 +57,8 @@ textarea { min-height: 120px; resize: vertical; }
 .btn.good { background: #b6f5cf; color: #06341c; }
 .btn.bad { background: #ffd0c8; color: #4d100c; }
 .btn.small { min-height: 44px; padding: 8px 12px; font-size: 15px; }
+.suggest { display: flex; flex-direction: column; gap: 8px; }
+.suggest:empty { display: none; }
 .choice, .player {
   width: 100%;
   text-align: left;
