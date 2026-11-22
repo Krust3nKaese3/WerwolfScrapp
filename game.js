@@ -162,6 +162,56 @@
     if (state.log.length > 80) state.log.splice(0, state.log.length - 80);
   }
 
+  function remember(state, event) {
+    if (!state || !Array.isArray(state.book)) return;
+    state.book.push(event);
+  }
+
+  function deathRound(state) {
+    if (state.screen === 'night' || state.resolution === 'morning') return state.nightNumber || 1;
+    return state.day || state.nightNumber || 1;
+  }
+
+  function phaseRound(state) {
+    if (state.screen === 'night') return state.nightNumber || 1;
+    if (state.screen === 'reveal') return 1;
+    if (state.resolution === 'morning') return state.nightNumber || 1;
+    return state.day || 1;
+  }
+
+  function seatCopy(player) {
+    var seat = { id: player.id, name: player.name };
+    if (player.pid) seat.pid = player.pid;
+    if (player.first) seat.first = player.first;
+    if (player.last) seat.last = player.last;
+    return seat;
+  }
+
+  function refreshSeatNames(state) {
+    if (!root.WerwolfPlayers || !state || !state.players) return;
+    var rows = [];
+    state.players.forEach(function (player) {
+      if (player.pid && player.first) rows.push({ id: player.pid, first: player.first, last: player.last || '' });
+    });
+    if (!rows.length) return;
+    var labels = root.WerwolfPlayers.displayNames(rows);
+    state.players.forEach(function (player) {
+      if (player.pid && labels[player.pid]) player.name = labels[player.pid];
+    });
+  }
+
+  function nameTaken(state, id) {
+    var seat = null;
+    var i;
+    for (i = 0; i < state.players.length; i++) if (state.players[i].id === id) seat = state.players[i];
+    if (!seat) return false;
+    var key = String(seat.name || '').toLowerCase();
+    for (i = 0; i < state.players.length; i++) {
+      if (state.players[i].id !== id && String(state.players[i].name || '').toLowerCase() === key) return true;
+    }
+    return false;
+  }
+
   function playerById(state, id) {
     id = Number(id);
     for (var i = 0; i < state.players.length; i++) {
@@ -253,8 +303,44 @@
 
   function lobbyRemove(state, id) {
     state.players = state.players.filter(function (p) { return p.id !== Number(id); });
+    refreshSeatNames(state);
     state.error = '';
     note(state, 'Name entfernt ' + id);
+  }
+
+  function lobbyAddPlayer(state, info) {
+    info = info || {};
+    var first = String(info.first || '').trim();
+    var last = String(info.last || '').trim();
+    var pid = info.pid ? String(info.pid) : '';
+    var name = String(info.name || first || '').trim().slice(0, 40);
+    if (!name) {
+      state.error = 'Bitte einen Namen eingeben.';
+      return;
+    }
+    if (pid) {
+      for (var i = 0; i < state.players.length; i++) {
+        if (state.players[i].pid === pid) {
+          state.error = 'Diese Person ist schon dabei.';
+          return;
+        }
+      }
+    }
+    var seat = { id: state.nextId++, name: name };
+    if (pid) seat.pid = pid;
+    if (first) seat.first = first;
+    if (last) seat.last = last;
+    state.players.push(seat);
+    refreshSeatNames(state);
+    if (nameTaken(state, seat.id)) {
+      state.players.pop();
+      state.nextId -= 1;
+      refreshSeatNames(state);
+      state.error = 'Diesen Namen gibt es schon.';
+      return;
+    }
+    state.error = '';
+    note(state, 'Name ' + seat.name);
   }
 
   function defaultConfig(playerCount) {
@@ -315,7 +401,7 @@
   function rewindToSetup(state) {
     var config = currentConfig(state);
     var selfTell = !!state.selfTell;
-    var players = (state.players || []).map(function (p) { return { id: p.id, name: p.name }; });
+    var players = (state.players || []).map(seatCopy);
     var nextId = state.nextId;
     var log = state.log || [];
     var rng = state._rng;
@@ -353,6 +439,8 @@
       return makePlayer(i + 1, name, bag[i], nachUses, healPotions);
     });
     var state = freshPlaying(players, counts, nachUses, healPotions, opts.log || []);
+    state.dealt = {};
+    state.players.forEach(function (player) { state.dealt[player.id] = player.role; });
     state._rng = rng;
     state.rolePool = rolePool;
     state.wolfMin = wolfMin;
@@ -426,6 +514,8 @@
       winReason: '',
       error: '',
       log: log,
+      book: [],
+      dealt: {},
       confirmAbort: false
     };
   }
@@ -481,6 +571,9 @@
 
   function dealInto(state) {
     var names = state.players.map(function (p) { return p.name; });
+    var meta = state.players.map(function (p) {
+      return { pid: p.pid, first: p.first, last: p.last };
+    });
     var rng = state._rng || Math.random;
     var fresh;
     try {
@@ -501,6 +594,13 @@
       state.error = error.message;
       return;
     }
+    fresh.players.forEach(function (player, index) {
+      var src = meta[index];
+      if (!src) return;
+      if (src.pid) player.pid = src.pid;
+      if (src.first) player.first = src.first;
+      if (src.last) player.last = src.last;
+    });
     replaceState(state, fresh);
   }
 
@@ -636,6 +736,7 @@
     if (cause === 'abstimmung' && p.role === 'politiker') {
       p.alive = false;
       p.notice = null;
+      remember(state, { k: 'die', n: deathRound(state), a: p.id, c: cause, r: p.role });
       if (state.mayorId === p.id) state.mayorId = nextLivingAfter(state, p.id);
       state.winner = 'politiker';
       state.winReason = 'Der Politiker wurde am Tag gewählt und gewinnt allein. Liebeskummer und Jägerschüsse werden nicht mehr ausgespielt.';
@@ -669,6 +770,7 @@
       var g = playerById(state, gid);
       g.notice = null;
       var c = gid === Number(id) ? cause : 'liebe';
+      remember(state, { k: 'die', n: deathRound(state), a: gid, c: c, r: g.role });
       state.obit.push({ id: gid, name: g.name, cause: c });
       note(state, 'Tot ' + g.name + ' ' + c);
     });
@@ -1444,12 +1546,20 @@
     state.hunterCast = [];
     state.obit = [];
     events.forEach(function (ev) {
-      if (healed[Number(ev.houseId)]) {
-        note(state, 'Heilung Haus ' + ev.houseId);
+      var house = Number(ev.houseId);
+      var people = occupants(state, house);
+      if (healed[house]) {
+        people.forEach(function (pid) {
+          var person = playerById(state, pid);
+          remember(state, { k: 'save', n: state.nightNumber, a: pid, r: person ? person.role : '', h: house });
+        });
+        note(state, 'Heilung Haus ' + house);
         return;
       }
-      occupants(state, ev.houseId).forEach(function (pid) {
-        applyDeath(state, pid, ev.cause);
+      people.forEach(function (pid) {
+        if (applyDeath(state, pid, ev.cause)) {
+          remember(state, { k: 'hit', n: state.nightNumber, c: ev.cause, h: house, t: pid, by: ev.actorId || 0 });
+        }
       });
     });
     state.resolution = 'morning';
@@ -1706,6 +1816,8 @@
       state.error = follow;
       return;
     }
+    var target = action.id != null && action.id !== '' ? Number(action.id) : (action.ids && action.ids.length ? action.ids.map(Number) : (state.selection || []).slice());
+    remember(state, { k: 'act', n: phaseRound(state), a: player.id, p: prompt.kind, r: player.role, t: target });
     note(state, 'Aktion ' + player.name + ' ' + prompt.kind + ' ' + JSON.stringify(action.id != null ? action.id : (action.ids || state.selection)));
     advancePrompt(state, follow || []);
   }
@@ -1750,7 +1862,8 @@
       state.extraAttacks.push({
         houseId: house,
         cause: prompt.attack === 'wolf' ? 'woelfe' : 'schuss',
-        kind: prompt.attack === 'wolf' ? 'wolf' : 'other'
+        kind: prompt.attack === 'wolf' ? 'wolf' : 'other',
+        actorId: player.id
       });
       return [];
     }
@@ -2061,6 +2174,7 @@
 
   function dispatch(state, action) {
     if (action.type === 'add-name') return lobbyAdd(state, action.name);
+    if (action.type === 'add-player') return lobbyAddPlayer(state, action);
     if (action.type === 'remove-name') return lobbyRemove(state, action.id);
     if (action.type === 'to-setup') return beginSetup(state);
     if (action.type === 'back-lobby') {
@@ -2219,7 +2333,7 @@
 
   function toLobby(state) {
     var lobby = newLobby();
-    lobby.players = (state.players || []).map(function (p) { return { id: p.id, name: p.name }; });
+    lobby.players = (state.players || []).map(seatCopy);
     lobby.nextId = state.nextId || (lobby.players.length + 1);
     lobby.log = state.log || [];
     lobby.selfTell = !!state.selfTell;
@@ -2328,6 +2442,7 @@
       addLink(state, pair[0], pair[1]);
       amor.amorLinked = true;
       amor.amorPair = pair.slice();
+      remember(state, { k: 'act', n: 1, a: amor.id, p: 'amor', r: amor.role, t: pair.slice() });
       state.selection = [];
       state.error = '';
       note(state, 'Amor verbindet ' + pair[0] + ' ' + pair[1]);
@@ -2569,6 +2684,8 @@
       state.error = 'Wähle eine lebende Person.';
       return;
     }
+    var hunter = playerById(state, state.hunterId);
+    remember(state, { k: 'act', n: deathRound(state), a: state.hunterId, p: 'jaeger', r: hunter ? hunter.role : 'jaeger', t: target });
     note(state, 'Schuss auf ' + playerById(state, target).name);
     var shotAt = state.hunters.indexOf(state.hunterId);
     if (shotAt >= 0) state.hunters.splice(shotAt, 1);
@@ -2700,6 +2817,8 @@
       if (action.type !== 'ack') return;
       if (duel.hit) {
         var shooter = duel.order[duel.pull % duel.order.length];
+        var russe = playerById(state, duel.russeId);
+        remember(state, { k: 'act', n: state.day || 1, a: duel.russeId, p: 'duell', r: russe ? russe.role : 'russe', t: shooter });
         state.obit = [];
         state.hunters = [];
         state.hunterCast = [];

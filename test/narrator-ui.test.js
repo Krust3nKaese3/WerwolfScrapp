@@ -7,6 +7,12 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
+async function addNamed(page, name) {
+  await page.fill('#name-input', name);
+  await page.fill('#last-input', 'Test');
+  await page.locator('#name-form button').click();
+}
+
 function startServer() {
   const server = http.createServer(function (req, res) {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -119,7 +125,7 @@ async function togglePersists(browser, base) {
     return Object.keys(localStorage).filter(function (key) { return key.indexOf('werwolf.') === 0; });
   });
   keys.forEach(function (key) {
-    assert.ok(/^werwolf\.(lobby|setup|game|scores)\.v1$/.test(key), key);
+    assert.ok(/^werwolf\.(lobby|setup|game|scores|players|history)\.v1$/.test(key), key);
   });
   assert.ok(keys.indexOf('werwolf.setup.v1') >= 0);
   await page.reload();
@@ -285,8 +291,7 @@ async function narratorPlaysNight(browser, base) {
   await page.goto(base);
   await page.getByRole('button', { name: 'Wir erzählen selber: aus' }).click();
   for (const name of ['Anna', 'Bea', 'Chris', 'Dora']) {
-    await page.fill('#name-input', name);
-    await page.locator('#name-form button').click();
+    await addNamed(page, name);
   }
   await page.getByRole('button', { name: 'Weiter zu den Rollen' }).click();
   await page.getByRole('button', { name: 'Rollen verteilen' }).click();
