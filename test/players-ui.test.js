@@ -73,7 +73,7 @@ async function main() {
     await page.getByRole('button', { name: 'Statistik' }).click();
     await page.getByRole('button', { name: 'Maximilian Bausch' }).click();
     text = await page.locator('#app').innerText();
-    assert.ok(text.indexOf('Spiele: 0') >= 0, text);
+    assert.ok(text.indexOf('0 Spiele') >= 0, text);
     assert.ok(text.indexOf('Siegquote') >= 0, text);
     await page.getByRole('button', { name: 'Zurück', exact: true }).click();
     await page.getByRole('button', { name: 'Max Bauer' }).click();

@@ -149,7 +149,7 @@ async function gateAndOrder(browser, base) {
   }
   assert.strictEqual(await start.isDisabled(), false);
   await start.click();
-  await page.getByText('Wer ist wach').waitFor();
+  await page.getByText('Tippe auf deinen Namen').waitFor();
   const names = page.locator('button[data-act="night-pick"]:not([disabled])');
   const last = (await names.last().locator('.who').innerText()).trim();
   await names.last().click();
@@ -158,7 +158,7 @@ async function gateAndOrder(browser, base) {
   await page.getByRole('button', { name: 'Go' }).click();
   assert.strictEqual(await page.getByRole('button', { name: 'Zurück', exact: true }).count(), 1);
   const turn = await page.locator('#app').innerText();
-  assert.ok(turn.indexOf('Wer ist wach') < 0, turn);
+  assert.ok(turn.indexOf('Tippe auf deinen Namen') < 0, turn);
   assert.ok(last.length > 0);
   assert.ok(await page.locator('#app button').count() > 0);
   assert.deepStrictEqual(errors, []);

@@ -25,6 +25,9 @@
   var HOME = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="M4 10.5 12 4l8 6.5V20h-5.2v-6.2H9.2V20H4z"/></svg>';
   var HOUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 11 12 4l8 7v9H4z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M10 20v-6h4v6"/></svg>';
   var PERSON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6.5 19c1.1-2.8 3-4.2 5.5-4.2S16.4 16.2 17.5 19"/></svg>';
+  var LOCK = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+  var MOON = '<svg class="phase-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M21 14.5A8.5 8.5 0 1 1 9.5 3a7 7 0 0 0 11.5 11.5z"/></svg>';
+  var SUN = '<svg class="phase-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4" fill="currentColor"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5 5l1.6 1.6M17.4 17.4 19 19M19 5l-1.6 1.6M6.6 17.4 5 19"/></svg>';
 
   function esc(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
@@ -347,6 +350,11 @@
       '</header>';
   }
 
+  function phaseHead(icon, title, subtitle) {
+    return '<header class="phase"><div><h1>' + (icon || '') + esc(title) + '</h1>' +
+      (subtitle ? '<p class="subhead">' + esc(subtitle) + '</p>' : '') + '</div></header>';
+  }
+
   function errorHtml() {
     return state.error ? '<div class="banner error">' + esc(state.error) + '</div>' : '';
   }
@@ -499,13 +507,11 @@
     }).join('');
     if (remote) {
       return header('Gast', 'Werwolf') +
-        hero('🌙', 'Nacht') +
         '<div class="stack"><p class="lead">Das Spiel liegt auf dem Host-Handy. Hier ist kein eigener Spielstand, keine Spielerliste und keine Statistik.</p>' +
         names + '</div>';
     }
     var telling = !!state.selfTell;
     return header('Ein Handy für die Runde', 'Werwolf') +
-      hero('🌙', 'Nacht') +
       '<div class="stack">' +
       '<p class="lead">Namen nacheinander eingeben, im Uhrzeigersinn. Diese Reihenfolge ist die Sitzordnung.</p>' +
       '<button type="button" class="btn secondary" data-act="toggle-self-tell" aria-pressed="' + (telling ? 'true' : 'false') + '">Wir erzählen selber: ' + (telling ? 'an' : 'aus') + '</button>' +
@@ -647,8 +653,10 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     var locked = seatLocked(p.id);
     var disabled = !!(opts.disabled || locked);
     return '<button type="button" class="choice' + (opts.cls || '') + (locked ? ' locked' : '') + '" data-act="' + opts.act + '" data-id="' + p.id + '"' +
-      (disabled ? ' disabled' : '') + ' style="--name-size:' + font + 'px"><span><span class="who">' + esc(p.name) + '</span><span class="meta">' +
-      esc(locked ? 'belegt' : opts.meta) + '</span></span></button>';
+      (disabled ? ' disabled' : '') + ' style="--name-size:' + font + 'px">' +
+      (locked ? '<span class="lock" aria-hidden="true">' + LOCK + '</span>' : '') +
+      '<span class="who">' + esc(p.name) + '</span><span class="meta">' +
+      esc(locked ? 'belegt' : opts.meta) + '</span></button>';
   }
 
   function renderReveal() {
@@ -710,8 +718,7 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         '<button type="button" class="btn bad" data-act="undo-deal" data-confirm="1">Ja, Rollen verwerfen</button>' +
         '<button type="button" class="btn secondary" data-act="undo-deal-no">Abbrechen</button>'
       : '<button type="button" class="btn secondary" data-act="undo-deal">Zurück</button>');
-    return header('Rollen', 'Wer ist dran?') +
-      hero('🎭', 'Rollen aufdecken') +
+    return phaseHead(MOON, 'Rollen', 'Tippe auf deinen Namen') +
       '<div class="stack">' + errorHtml() +
       '<p class="lead">' + (state.quickAmor !== false
         ? 'Jede Person tippt den eigenen Namen und sieht nur die eigene Rolle. Der Name wird grau, wenn sie fertig ist, und bleibt antippbar. Amor ist erst fertig, wenn er ein Paar verbunden hat. Spiel starten geht erst dann.'
@@ -733,8 +740,7 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         '</span>' + (badges.length ? '<span class="meta">' + esc(badges.join(' · ')) + '</span>' : '') + '</span></div>';
     }).join(''));
     var telling = !!state.selfTell && !state.remoteNarrator;
-    return header(phaseEyebrow(), 'Diskussion') +
-      hero('☀️', 'Tag') +
+    return phaseHead(SUN, 'Tag ' + state.day, 'Diskussion') +
       '<div class="stack">' + mayorHtml() +
       '<p class="lead">' + (state.remoteNarrator
         ? 'Der Erzähler hat das Host-Handy. Hier siehst du nur den Stand.'
@@ -890,12 +896,9 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         meta: dead ? 'tot' : (finished ? 'schon dran' : 'tippen, wenn du dran bist')
       });
     }).join(''));
-    return header(phaseEyebrow(), 'Wer ist wach?') +
-      hero('🌙', 'Nacht') +
+    return phaseHead(MOON, 'Nacht ' + state.nightNumber, 'Tippe auf deinen Namen') +
       '<div class="stack">' + errorHtml() +
-      '<p class="lead">' + (waits
-        ? 'Zuerst tippt Amor. Zurück vor dem Bestätigen verbraucht nichts. Danach ist die Reihenfolge egal, die Wölfe erst nach Amor.'
-        : 'Jede lebende Person tippt den eigenen Namen. Die Reihenfolge ist egal. Wer fertig ist, wird grau und kann diese Nacht nicht noch einmal.') + '</p>' +
+      (waits ? '<p class="hint">Zuerst tippt Amor. Zurück vor dem Bestätigen verbraucht nichts. Danach ist die Reihenfolge egal, die Wölfe erst nach Amor.</p>' : '') +
       names + abortLink() + '</div>';
   }
 
@@ -911,12 +914,11 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         meta: dead ? 'tot' : (finished ? 'Stimme abgegeben' : (p.id === state.mayorId ? 'Bürgermeister, Stimme 1,5' : 'Stimme abgeben'))
       });
     }).join(''));
-    return header(phaseEyebrow(), 'Wer stimmt ab?') +
-      hero('🗳️', 'Abstimmung') +
+    return phaseHead(SUN, 'Tag ' + state.day, state.selfTell ? 'Tippe jede lebende Person, dann ihre Stimme.' : 'Tippe auf deinen Namen') +
       '<div class="stack">' + errorHtml() +
-      '<p class="lead">' + (state.selfTell
-        ? 'Tippe nacheinander jede lebende Person und danach ihre Stimme. Die Reihenfolge ist egal. Zurück vor dem Bestätigen verbraucht die Stimme nicht. Der Bürgermeister zählt 1,5.'
-        : 'Jede lebende Person tippt den eigenen Namen und stimmt geheim ab. Danach ist der Name grau. Gezählt wird, wenn alle abgestimmt haben. Der Bürgermeister zählt 1,5.') + '</p>' +
+      '<p class="hint">' + (state.selfTell
+        ? 'Die Reihenfolge ist egal. Zurück vor dem Bestätigen verbraucht die Stimme nicht. Der Bürgermeister zählt 1,5.'
+        : 'Die Abstimmung bleibt geheim. Danach ist der Name grau. Gezählt wird, wenn alle abgestimmt haben. Der Bürgermeister zählt 1,5.') + '</p>' +
       names + abortLink() + '</div>';
   }
 
@@ -1081,12 +1083,11 @@ if (!(poolOn && role === 'werwolf')) sum += count;
           meta: shooting ? 'Schuss abgeben' : 'nicht dran'
         });
       }).join(''));
-      return header('Jäger', 'Wer schießt?') +
-        hero('🏹', 'Jäger') +
+      return phaseHead('', 'Schuss', 'Tippe auf deinen Namen') +
         '<div class="stack">' + errorHtml() +
-        '<p class="lead">' + (state.selfTell
+        '<p class="hint">' + (state.selfTell
           ? 'Tippe den Jäger, der schießt. Die Reihenfolge ist egal. Zurück vor dem Schuss verbraucht nichts.'
-          : 'Jeder Jäger, der schießen muss, tippt den eigenen Namen. Die Reihenfolge ist egal. Danach ist der Name grau.') + '</p>' +
+          : 'Nur wer schießen muss, ist antippbar. Die Reihenfolge ist egal. Danach ist der Name grau.') + '</p>' +
         names + '</div>';
     }
     if (state.step === 'ready') {
@@ -1123,8 +1124,8 @@ if (!(poolOn && role === 'werwolf')) sum += count;
           meta: p.alive ? 'Das bin ich' : 'tot'
         });
       }).join(''));
-      return header('Duell', 'Wer bist du?') + hero('🎲', 'Duell') + '<div class="stack">' + errorHtml() +
-        '<p class="lead">' + (state.selfTell ? 'Tippe den Namen, der das Duell ansagt. Die Liste hat keine feste Reihenfolge.' : 'Tippe deinen Namen.') + '</p>' +
+      return phaseHead('', 'Duell', 'Tippe auf deinen Namen') + '<div class="stack">' + errorHtml() +
+        (state.selfTell ? '<p class="hint">Tippe den Namen, der das Duell ansagt. Die Liste hat keine feste Reihenfolge.</p>' : '') +
         '<div class="stack">' + people + '</div>' +
         '<button type="button" class="btn secondary" data-act="cancel">Zurück</button></div>';
     }
@@ -1261,6 +1262,10 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     }).join('');
   }
 
+  function metricTile(label, value) {
+    return '<div class="metric"><span class="metric-label">' + esc(label) + '</span><strong>' + esc(String(value)) + '</strong></div>';
+  }
+
   function renderStatPlayer(pid) {
     var player = null;
     roster.players.forEach(function (candidate) { if (candidate.id === pid) player = candidate; });
@@ -1273,20 +1278,39 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     Object.keys(stats.roles).forEach(function (role) {
       if (roles.indexOf(role) < 0) roles.push(role);
     });
+    var healed = 0;
+    var kills = 0;
+    roles.forEach(function (role) {
+      var row = stats.roles[role];
+      healed += row.healed || 0;
+      kills += row.teamKills || 0;
+      Object.keys(row.otherKills || {}).forEach(function (key) { kills += row.otherKills[key] || 0; });
+    });
     var cards = roles.map(function (role) {
       var row = stats.roles[role];
-      return '<section class="card stack"><h2>' + roleIcon(role) + ' ' + esc(W.roleName(role)) + '</h2>' +
-        '<p>Bekommen: ' + row.got + ' · Siege: ' + row.won + ' · Siegquote: ' + formatPercent(row.won, row.got) + '</p>' +
-        '<p>Mit der Rolle gestorben: ' + row.deaths + ' · Ø Todesrunde: ' + formatAvg(row.deathRoundSum, row.deaths) + '</p>' +
-        '<p>Geheilt: ' + row.healed + '</p>' +
-        '<p>Mit der Fähigkeit getötet, eigenes Team: ' + row.teamKills + '</p>' +
-        '<p>Andere Rollen getötet:</p>' + otherKillHtml(row.otherKills) + '</section>';
+      var rate = row.got ? Math.max(0, Math.min(100, Math.round((row.won / row.got) * 100))) : 0;
+      return '<div class="role-stat"><div class="role-top"><span>' + esc(W.roleName(role)) + '</span><span>' +
+        row.got + 'x ' + formatPercent(row.won, row.got) + '</span></div>' +
+        '<div class="bar" role="img" aria-label="Siegquote ' + esc(formatPercent(row.won, row.got)) + '"><span style="width:' + rate + '%"></span></div>' +
+        '<p class="hint">Gestorben: ' + row.deaths + ' · Ø Todesrunde: ' + formatAvg(row.deathRoundSum, row.deaths) +
+        ' · Geheilt: ' + row.healed + ' · Team: ' + row.teamKills + '</p>' +
+        (Object.keys(row.otherKills || {}).length ? '<p class="hint">Andere Rollen</p>' + otherKillHtml(row.otherKills) : '') +
+        '</div>';
     }).join('');
-    return header('Statistik', player.first + ' ' + player.last) +
-      '<div class="stack"><section class="card stack"><p>Spiele: ' + stats.games + '</p><p>Siege: ' + stats.wins + '</p>' +
-      '<p>Siegquote: ' + formatPercent(stats.wins, stats.games) + '</p>' +
-      '<p>Ø Todesrunde: ' + formatAvg(stats.deathRoundSum, stats.deaths) + '</p></section>' +
-      (cards || '<p class="hint">Noch keine Rolle in einem beendeten Spiel.</p>') +
+    var initial = (player.first || '?').charAt(0).toUpperCase();
+    return '<div class="stat-id"><span class="avatar" aria-hidden="true">' + esc(initial) + '</span><div><h1>' +
+      esc(player.first + ' ' + player.last) + '</h1><p class="subhead">' +
+      esc(stats.games + ' Spiele · ' + formatPercent(stats.wins, stats.games) + ' Siege') + '</p></div></div>' +
+      '<div class="stack">' +
+      '<div class="metrics">' +
+      metricTile('Spiele', stats.games) +
+      metricTile('Siege', stats.wins) +
+      metricTile('Siegquote', formatPercent(stats.wins, stats.games)) +
+      metricTile('Ø Todesrunde', formatAvg(stats.deathRoundSum, stats.deaths)) +
+      metricTile('Heilungen', healed) +
+      metricTile('Kills', kills) +
+      '</div>' +
+      (cards ? '<h2>Rollen</h2>' + cards : '<p class="hint">Noch keine Rolle in einem beendeten Spiel.</p>') +
       '<button type="button" class="btn secondary" data-act="stats-back">Zurück</button></div>';
   }
 
@@ -1302,7 +1326,9 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var rows = people.map(function (player) {
       var stats = S.playerStats(history, player.id);
       var meta = stats.games ? stats.games + ' Spiele · ' + stats.wins + ' Siege' : 'Noch kein Spiel';
-      return '<button type="button" class="choice" data-act="open-player" data-pid="' + esc(player.id) + '"><span><span class="who">' +
+      var initial = (player.first || '?').charAt(0).toUpperCase();
+      return '<button type="button" class="choice person-row" data-act="open-player" data-pid="' + esc(player.id) + '">' +
+        '<span class="avatar" aria-hidden="true">' + esc(initial) + '</span><span><span class="who">' +
         esc(player.first + ' ' + player.last) + '</span><span class="meta">' + esc(meta) + '</span></span></button>';
     }).join('');
     return header('Statistik', 'Spieler') +
