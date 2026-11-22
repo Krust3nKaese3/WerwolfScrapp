@@ -203,7 +203,7 @@
       copy.remoteNarrator = true;
       copy.step = 'list';
       copy.activeId = null;
-    } else if (!ended && (copy.step === 'show' || copy.step === 'ready' || copy.step === 'link' || copy.step === 'love' || copy.step === 'handoff')) {
+    } else if (!ended && (copy.step === 'confirm' || copy.step === 'show' || copy.step === 'ready' || copy.step === 'link' || copy.step === 'love' || copy.step === 'handoff')) {
       copy.step = 'list';
       copy.activeId = null;
       copy.actorId = null;
@@ -249,6 +249,9 @@
       }
       if (!flag) blankSeat(p);
     });
+    if (copy.screen === 'reveal' && copy.step === 'confirm') {
+      (copy.players || []).forEach(blankSeat);
+    }
     copy.remoteHold = true;
     copy.error = preview.error || '';
     return copy;
@@ -301,7 +304,7 @@
   }
 
   var CLAIM = { 'reveal-pick': 1, 'night-pick': 1, 'vote-pick': 1, 'hunter-pick': 1, 'duel-pick': 1 };
-  var TURN = { go: 1, back: 1, ack: 1, confirm: 1, select: 1, skip: 1, cancel: 1 };
+  var TURN = { go: 1, back: 1, ack: 1, confirm: 1, select: 1, skip: 1, cancel: 1, 'reveal-see': 1 };
   var GUEST_GLOBAL = { 'start-game': 1, ack: 1, 'to-vote': 1, 'to-duel': 1, cancel: 1 };
 
   function createSession(mp, hooks) {

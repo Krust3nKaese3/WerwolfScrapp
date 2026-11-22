@@ -65,6 +65,7 @@ function amorPair(state, amorId, pair) {
 
 function ackReveal(state, id, pairs) {
   W.send(state, { type: 'reveal-pick', id: id });
+  if (state.step === 'confirm') W.send(state, { type: 'reveal-see' });
   if (state.step === 'link') amorPair(state, id, pairs && pairs[id]);
   else if (state.step === 'love') W.send(state, { type: 'ack' });
   else W.send(state, { type: 'ack' });
@@ -185,7 +186,8 @@ function step(state) {
       return true;
     }
     const unseen = state.players.filter(function (person) { return !W.revealDone(state, person); })[0];
-    if (state.step === 'show') W.send(state, { type: 'ack' });
+    if (state.step === 'confirm') W.send(state, { type: 'reveal-see' });
+    else if (state.step === 'show') W.send(state, { type: 'ack' });
     else if (unseen) W.send(state, { type: 'reveal-pick', id: unseen.id });
     else W.send(state, { type: 'start-game' });
     return true;
@@ -944,6 +946,12 @@ test('Amor verbindet beim Aufdecken und bleibt offen, bis das Paar steht', funct
   W.send(state, { type: 'start-game' });
   assert.strictEqual(state.screen, 'reveal');
   W.send(state, { type: 'reveal-pick', id: 1 });
+  assert.strictEqual(state.step, 'confirm');
+  W.send(state, { type: 'back' });
+  assert.strictEqual(state.step, 'list');
+  assert.ok(!state.peeked || !state.peeked[1]);
+  W.send(state, { type: 'reveal-pick', id: 1 });
+  W.send(state, { type: 'reveal-see' });
   assert.strictEqual(state.step, 'link');
   W.send(state, { type: 'back' });
   assert.strictEqual(state.step, 'list');
@@ -952,6 +960,7 @@ test('Amor verbindet beim Aufdecken und bleibt offen, bis das Paar steht', funct
   assert.deepStrictEqual(p(state, 1).loverIds, []);
   assert.ok(W.pendingNames(state).indexOf('P1') >= 0);
   W.send(state, { type: 'reveal-pick', id: 1 });
+  W.send(state, { type: 'reveal-see' });
   W.send(state, { type: 'skip' });
   assert.ok(state.error);
   assert.strictEqual(state.step, 'link');
@@ -966,6 +975,7 @@ test('Amor verbindet beim Aufdecken und bleibt offen, bis das Paar steht', funct
   assert.strictEqual(state.step, 'list');
   assert.ok(W.revealDone(state, p(state, 1)));
   W.send(state, { type: 'reveal-pick', id: 1 });
+  W.send(state, { type: 'reveal-see' });
   assert.strictEqual(state.step, 'show');
   assert.deepStrictEqual(p(state, 1).amorPair, [1, 2]);
   W.send(state, { type: 'ack' });
@@ -1008,6 +1018,7 @@ test('Zurück vom Aufdecken verwirft die Rollen, ab zwei Gesehenen erst nach Fra
   paint(state);
   assert.strictEqual(state.screen, 'reveal');
   W.send(state, { type: 'reveal-pick', id: 2 });
+  W.send(state, { type: 'reveal-see' });
   W.send(state, { type: 'ack' });
   W.send(state, { type: 'undo-deal' });
   assert.strictEqual(state.screen, 'setup');
@@ -1024,6 +1035,7 @@ test('Zurück vom Aufdecken verwirft die Rollen, ab zwei Gesehenen erst nach Fra
   W.send(state, { type: 'undo-deal-no' });
   assert.ok(!state.confirmUndoDeal);
   W.send(state, { type: 'reveal-pick', id: 1 });
+  W.send(state, { type: 'reveal-see' });
   W.send(state, { type: 'select', id: 1 });
   W.send(state, { type: 'select', id: 4 });
   W.send(state, { type: 'confirm', ids: [1, 4] });
@@ -1167,11 +1179,17 @@ test('Seherin sieht standardmäßig das Lager und mit Schalter die genaue Rolle'
 test('Zurück nach dem Namen verbraucht nichts und macht den Namen nicht grau', function () {
   const reveal = make(['werwolf', 'dorfbewohner', 'dorfbewohner', 'dorfbewohner']);
   W.send(reveal, { type: 'reveal-pick', id: 2 });
+  assert.strictEqual(reveal.step, 'confirm');
+  W.send(reveal, { type: 'back' });
+  assert.strictEqual(reveal.step, 'list');
+  W.send(reveal, { type: 'reveal-pick', id: 2 });
+  W.send(reveal, { type: 'reveal-see' });
   assert.strictEqual(reveal.step, 'show');
   W.send(reveal, { type: 'back' });
   assert.strictEqual(reveal.step, 'list');
   assert.ok(!reveal.revealed[2]);
   W.send(reveal, { type: 'reveal-pick', id: 2 });
+  W.send(reveal, { type: 'reveal-see' });
   W.send(reveal, { type: 'ack' });
   assert.strictEqual(reveal.revealed[2], true);
 

@@ -33,6 +33,8 @@ function startServer() {
 }
 
 async function finishRevealCard(page) {
+  const see = page.getByRole('button', { name: 'Rolle ansehen' });
+  if (await see.count()) await see.click();
   if (await page.getByText('Du bist Amor').count()) {
     const choices = page.locator('button[data-act="select"]');
     await choices.nth(0).click();

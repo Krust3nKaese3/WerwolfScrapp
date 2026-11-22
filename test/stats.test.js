@@ -63,6 +63,7 @@ function startAndKill(names, roles, votes, mode) {
   });
   state.players.forEach(function (player) {
     W.send(state, { type: 'reveal-pick', id: player.id });
+    W.send(state, { type: 'reveal-see' });
     W.send(state, { type: 'ack' });
   });
   W.send(state, { type: 'start-game' });
@@ -121,6 +122,7 @@ test('Ein Heiltrank landet als Rettung im Protokoll und verhindert den Kill', fu
   });
   state.players.forEach(function (player) {
     W.send(state, { type: 'reveal-pick', id: player.id });
+    W.send(state, { type: 'reveal-see' });
     W.send(state, { type: 'ack' });
   });
   W.send(state, { type: 'start-game' });

@@ -2398,7 +2398,7 @@
       rewindToSetup(state);
       return;
     }
-    if (action.type === 'back' && (state.step === 'show' || state.step === 'link')) {
+    if (action.type === 'back' && (state.step === 'confirm' || state.step === 'show' || state.step === 'link')) {
       state.activeId = null;
       state.selection = [];
       state.step = 'list';
@@ -2409,13 +2409,22 @@
     if (action.type === 'reveal-pick') {
       var person = playerById(state, action.id);
       if (!person) return;
-      markPeeked(state, person.id);
       state.activeId = person.id;
       state.selection = [];
       state.confirmUndoDeal = false;
       state.error = '';
-      state.step = state.quickAmor !== false && person.role === 'amor' && !person.amorLinked ? 'link' : 'show';
-      note(state, 'Rolle zeigen ' + person.name);
+      state.step = 'confirm';
+      note(state, 'Rolle bestätigen ' + person.name);
+      return;
+    }
+    if (action.type === 'reveal-see' && state.step === 'confirm') {
+      var looking = playerById(state, state.activeId);
+      if (!looking) return;
+      markPeeked(state, looking.id);
+      state.selection = [];
+      state.error = '';
+      state.step = state.quickAmor !== false && looking.role === 'amor' && !looking.amorLinked ? 'link' : 'show';
+      note(state, 'Rolle zeigen ' + looking.name);
       return;
     }
     if (state.step === 'link' && action.type === 'select') {

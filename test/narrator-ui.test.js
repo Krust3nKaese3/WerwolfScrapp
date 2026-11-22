@@ -300,6 +300,7 @@ async function narratorPlaysNight(browser, base) {
   const start = page.getByRole('button', { name: 'Spiel starten' });
   for (let i = 0; i < 8 && await start.isDisabled(); i++) {
     await page.locator('button[data-act="reveal-pick"]:not(.seen)').first().click();
+    await page.getByRole('button', { name: 'Rolle ansehen' }).click();
     await page.getByRole('button', { name: 'Verstanden, verdecken' }).click();
   }
   await start.click();
