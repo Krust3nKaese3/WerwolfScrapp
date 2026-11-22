@@ -18,7 +18,7 @@ Dieselbe Adresse funktioniert als QR-Code im Scanner von OpenScr. Add-Links:
 - OpenScr: `openscr://add?url=https%3A%2F%2Fgithub.com%2FKrust3nKaese3%2FWerwolfScrapp`
 - Dev-Client: `exp+openscr://add?url=https%3A%2F%2Fgithub.com%2FKrust3nKaese3%2FWerwolfScrapp`
 
-3. Die Berechtigung **storage** bestätigen. Sie speichert Namen und den laufenden Spielstand. Der `localStorage` der WebView übersteht das vollständige Schließen von OpenScr nicht, `OpenScrBridge.storage` schon. Fehlt `OpenScrBridge`, gilt `EveryAppBridge.storage`.
+3. Die Berechtigungen **storage** und **multiplayer** bestätigen. Storage speichert Namen und den laufenden Spielstand auf dem Host. Der `localStorage` der WebView übersteht das vollständige Schließen von OpenScr nicht, `OpenScrBridge.storage` schon. Fehlt `OpenScrBridge`, gilt `EveryAppBridge.storage`. Multiplayer gilt nur in OpenScr mit der Bridge. Ohne Bridge bleibt das Spiel auf einem Handy.
 
 Nach einem Push die OpenScrapp in OpenScr mit ⟳ aktualisieren.
 
@@ -197,7 +197,7 @@ Jedes beendete Spiel, normal oder mit Erzähler, hängt ein kompaktes Protokoll 
 
 Pro Person und Rolle: wie oft bekommen, wie oft gewonnen, Siegquote, wie oft mit dieser Rolle gestorben, durchschnittliche Todesrunde, wie oft geheilt, Kills mit der Rollenfähigkeit. Die Kills trennen eigene Teammitglieder und andere Rollen, aufgeschlüsselt nach Rolle. Dazu die durchschnittliche Todesrunde über alle Rollen und die Gesamtwerte Spiele und Siege. Gewonnen wird der Rolle zugerechnet, die die Person zu Beginn hatte. Gestorben wird der Rolle zugerechnet, die sie im Tod hatte. Ein Kill zählt für die Rolle, mit der die Fähigkeit eingesetzt wurde. Werwölfe, die das getroffene Haus gewählt haben, teilen sich den Kill. Die Hexe bekommt ihre Giftkills, der Jäger seinen Schuss, der Russe die Kugel im Duell. Liebe und die Abstimmung sind keine Fähigkeitskills. Geheilt ist, wie oft ein Trank den Tod in dieser Nacht aufgehalten hat.
 
-Spieler-ids und die Statistik bleiben auf dem Host-Handy. Das Protokoll nennt nur ids, Rollen und Zahlen, damit es später geräteunabhängig zu einem Mehrspieler-Stand passt. Mehrspieler selbst gibt es hier nicht.
+Spieler-ids und die Statistik bleiben auf dem Host-Handy. Das Protokoll nennt nur ids, Rollen und Zahlen. Im Mehrspieler schreibt nur der Host `werwolf.players.v1`, `werwolf.history.v1` und die übrigen Schlüssel. Gäste, auch im Browser, halten keinen eigenen Spielstand.
 
 ## Speicher und Fehlerbericht
 
@@ -239,7 +239,9 @@ WerwolfScrapp/
 ├── players.js
 ├── stats.js
 ├── game.js
+├── net.js
 ├── test/logic.test.js
+├── test/multiplayer.test.js
 ├── test/players.test.js
 ├── test/players-ui.test.js
 ├── test/stats.test.js
@@ -250,7 +252,15 @@ WerwolfScrapp/
 
 `openscr.json` ist das Manifest. `everyapp.json` hat denselben Inhalt und bleibt, damit ältere installierte Builds die OpenScrapp weiter laden. Der Anzeigename darin ist **Werwolf**.
 
-`node test/logic.test.js` prüft die Spiellogik. `node test/players.test.js` prüft Spieler, `node test/stats.test.js` die Protokolle. `node test/narrator.test.js` prüft den Modus „Wir erzählen selber“.
+`node test/logic.test.js` prüft die Spiellogik. `node test/players.test.js` prüft Spieler, `node test/stats.test.js` die Protokolle. `node test/narrator.test.js` prüft den Modus „Wir erzählen selber“. `node test/multiplayer.test.js` prüft Host und Gäste mit einer Mock-Bridge.
+
+## Mehrspieler
+
+Ein Modus für ein oder mehrere Handys. Ohne `OpenScrBridge.multiplayer` (oder dasselbe an `EveryAppBridge`) läuft das Spiel wie bisher auf einem Gerät. Mit Bridge hält das Host-Handy den Spielstand, rechnet die Nacht und speichert. Gäste schicken nur Aktionen. Rollen, Amor, Seherin und der Diebstahlshinweis gehen als private Nachricht an das Gerät, das den Namen gerade offen hat, nie im Broadcast.
+
+Im Browser ohne App reicht die Multiplayer-API. Der Host-Webserver und der WebSocket-Shim kommen von OpenScr. Diese Seite erzeugt keinen QR-Code. Wenn die Bridge `showQr` (oder eine WLAN-/Hotspot-Variante) anbietet, gibt es dafür einen Knopf. Fehlt `keepAwake`, bleibt der Bildschirm, wie er ist. Ist die Funktion da, nutzt sie nur der Host, solange eine Partie läuft.
+
+Die Netzwerkschicht steckt in `net.js`. Dieselbe Session nimmt jede Bridge mit `host`, `join`, `send`, `broadcast` und den Events. Die Namenskarten stehen alphabetisch im Raster. Die Spaltenzahl setzt der Host einmal zu Beginn anhand eines Pixel-7-Referenzbilds (`GRID_MIN_CARD` in `net.js`, aktuell 96). Danach ändert sich die Spaltenzahl nicht, nur die Kartengröße je Bildschirm.
 
 ## Festgelegte Regeldetails
 
