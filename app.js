@@ -16,6 +16,8 @@
   var history = S.emptyHistory();
   var draft = { query: '', last: '' };
   var statsMode = null;
+  var uiJoin = false;
+  var mpError = '';
   var confirmReset = false;
   var saveReady = false;
   var booting = true;
@@ -153,8 +155,21 @@
     state.error = '';
   }
 
+  function isGuest() {
+    return !!(window.WerwolfNet && window.WerwolfNet.role && window.WerwolfNet.role() === 'guest');
+  }
+
+  function ensureGrid() {
+    if (window.WerwolfNet) window.WerwolfNet.stampGrid(state);
+  }
+
+  function ui() {
+    var overlay = window.WerwolfNet && window.WerwolfNet.display && window.WerwolfNet.display();
+    return overlay || state;
+  }
+
   function persist() {
-    if (!saveReady) return;
+    if (!saveReady || isGuest()) return;
     var lobby = lobbySnapshot();
     var game = state.screen === 'lobby' ? null : JSON.parse(JSON.stringify(state));
     var points = scores;
@@ -254,6 +269,7 @@
     if (action.type === 'reset-ask') { confirmReset = true; render(); return; }
     if (action.type === 'reset-cancel') { confirmReset = false; render(); return; }
     if (action.type === 'reset-scores') {
+      if (isGuest()) return;
       scores = {};
       if (state) state.scoredNames = [];
       confirmReset = false;
@@ -262,9 +278,16 @@
       return;
     }
     confirmReset = false;
+    if (window.WerwolfNet && window.WerwolfNet.online && window.WerwolfNet.online()) {
+      rendering = true;
+      try { window.WerwolfNet.local(action); }
+      finally { rendering = false; }
+      return;
+    }
     rendering = true;
     try {
       W.send(state, action);
+      ensureGrid();
       if (action.type === 'toggle-self-tell' || action.type === 'toggle-wolf-action' || action.type === 'toggle-quick-amor' || action.type === 'toggle-seer' || action.type === 'toggle-pool') rememberModes();
       if (action.type === 'to-setup') applySavedSetup();
       if (state.screen === 'setup' && (action.type === 'to-setup' || action.type === 'undo-deal' || setupActions(action.type))) {
@@ -399,6 +422,7 @@
   }
 
   function abortLink() {
+    if (state.remote) return '';
     if (state.confirmAbort) {
       return '<div class="card stack"><p>Spiel abbrechen? Die Namen bleiben erhalten.</p>' +
         '<button type="button" class="btn bad" data-act="abort">Ja, abbrechen</button>' +
@@ -407,12 +431,78 @@
     return '<button type="button" class="btn secondary" data-act="abort-ask">Spiel abbrechen</button>';
   }
 
+  function mpEntry() {
+    if (!window.WerwolfNet || !window.WerwolfNet.available || !window.WerwolfNet.available()) return '';
+    if (isGuest()) return '';
+    if (window.WerwolfNet.roomInfo && window.WerwolfNet.roomInfo()) return '';
+    return '<button type="button" class="btn secondary" data-act="mp-host">Mehrspieler</button>' +
+      '<button type="button" class="btn secondary" data-act="mp-join">Beitreten</button>' +
+      '<p class="hint">Mehrspieler macht das Spiel im lokalen Netz sichtbar. QR-Codes für WLAN, Hotspot und den Browser zeigt OpenScr, nicht diese Seite. Ohne Bridge bleibt alles auf einem Handy.</p>';
+  }
+
+  function mpBar() {
+    var net = window.WerwolfNet;
+    if (!net || !net.roomInfo) return '';
+    var room = net.roomInfo();
+    if (!room) return '';
+    var away = net.hostAway ? net.hostAway() : '';
+    var buttons = room.role === 'host' ? (net.qrButtons ? net.qrButtons() : []).map(function (button) {
+      return '<button type="button" class="btn secondary" data-act="mp-qr" data-fn="' + esc(button.fn) + '">' + esc(button.label) + '</button>';
+    }).join('') : '';
+    var people = (room.players || []).map(function (person) {
+      return esc(person.name) + (person.host ? ' (Host)' : '') + (person.connected ? '' : ', kurz weg');
+    }).join(' · ');
+    var requests = room.role === 'host' ? (room.requests || []).map(function (request) {
+      return '<p>' + esc(request.name) + ' möchte beitreten.</p>' +
+        '<button type="button" class="btn" data-act="mp-approve" data-id="' + esc(request.id) + '">Zulassen</button>' +
+        '<button type="button" class="btn secondary" data-act="mp-deny" data-id="' + esc(request.id) + '">Ablehnen</button>';
+    }).join('') : '';
+    return '<div class="card stack"><p class="hint">Raum ' + esc(room.roomCode) + (people ? ' · ' + people : '') + '</p>' +
+      (away ? '<div class="banner info">' + esc(away) + '</div>' : '') +
+      (mpError ? '<div class="banner error">' + esc(mpError) + '</div>' : '') +
+      buttons +
+      (buttons ? '<p class="hint">Den QR-Code öffnet OpenScr. Gäste können die Seite im Browser mitspielen. Speicher, Spielerliste und Statistik bleiben auf dem Host.</p>' : '') +
+      requests +
+      (room.role === 'host' ? '<button type="button" class="btn secondary" data-act="mp-leave">Raum schließen</button>' : '<button type="button" class="btn secondary" data-act="mp-leave">Verlassen</button>') +
+      '</div>';
+  }
+
+  function renderJoin() {
+    var rooms = window.WerwolfNet && window.WerwolfNet.rooms ? window.WerwolfNet.rooms() : [];
+    var scan = window.WerwolfNet && window.WerwolfNet.qrButtons && window.WerwolfNet.qrButtons().some(function (button) { return button.fn === 'showQr'; });
+    var list = rooms.map(function (room) {
+      return '<button type="button" class="btn secondary" data-act="mp-room" data-room="' + esc(room.id) + '">' +
+        esc(room.hostName) + ' · Raum ' + esc(room.roomCode) + ' · ' + room.players + '/' + room.maxPlayers + '</button>';
+    }).join('');
+    return header('Beitreten', 'Werwolf') +
+      '<div class="stack"><p class="lead">Offene Werwolf-Spiele in der Nähe, mit Hostname und Raumcode. Antippen schickt eine Anfrage. Der QR-Code am Host braucht keine Zustimmung. Ohne App öffnet der QR-Code von OpenScr diese Seite im Browser.</p>' +
+      (mpError ? '<div class="banner error">' + esc(mpError) + '</div>' : '') +
+      (list || '<p class="hint">Kein Spiel in der Nähe.</p>') +
+      (scan ? '<button type="button" class="btn" data-act="mp-scan">QR scannen</button>' : '') +
+      '<button type="button" class="btn secondary" data-act="mp-back">Zurück</button></div>';
+  }
+
+  function renderWait() {
+    var away = window.WerwolfNet && window.WerwolfNet.hostAway ? window.WerwolfNet.hostAway() : '';
+    return header('Werwolf', 'Verbinden') +
+      '<div class="stack"><p class="lead">' + esc(state.waitText || 'Verbinden …') + '</p>' +
+      (away ? '<div class="banner info">' + esc(away) + '</div>' : '') +
+      '</div>';
+  }
+
   function renderLobby() {
+    var remote = !!state.remote;
     var names = state.players.map(function (p, index) {
       return '<div class="player"><span class="player-name">' + (index + 1) + '. ' + esc(p.name) +
-        '</span><button type="button" class="icon-btn" data-act="remove-name" data-id="' + p.id + '" aria-label="' +
-        esc(p.name) + ' entfernen">✕</button></div>';
+        '</span>' + (remote ? '' : '<button type="button" class="icon-btn" data-act="remove-name" data-id="' + p.id + '" aria-label="' +
+        esc(p.name) + ' entfernen">✕</button>') + '</div>';
     }).join('');
+    if (remote) {
+      return header('Gast', 'Werwolf') +
+        hero('🌙', 'Nacht') +
+        '<div class="stack"><p class="lead">Das Spiel liegt auf dem Host-Handy. Hier ist kein eigener Spielstand, keine Spielerliste und keine Statistik.</p>' +
+        names + '</div>';
+    }
     var telling = !!state.selfTell;
     return header('Ein Handy für die Runde', 'Werwolf') +
       hero('🌙', 'Nacht') +
@@ -425,6 +515,8 @@
       (bridgeStorage() ? '<p class="hint">Namen und ein laufendes Spiel bleiben in OpenScr gespeichert, auch nach dem Schließen.</p>'
         : '<p class="hint">Im Browser bleibt der Stand in diesem Tab. In OpenScr übersteht er das Schließen der App.</p>') +
       errorHtml() +
+      mpEntry() +
+      (mpError ? '<div class="banner error">' + esc(mpError) + '</div>' : '') +
       '<form id="name-form" class="stack"><input id="name-input" type="text" maxlength="32" autocomplete="off" autocapitalize="words" placeholder="Vorname oder Suche" aria-label="Vorname oder Suche" value="' + esc(draft.query) + '">' +
       '<div id="name-suggest" class="suggest">' + suggestHtml(draft.query) + '</div>' +
       '<input id="last-input" type="text" maxlength="32" autocomplete="off" autocapitalize="words" placeholder="Nachname" aria-label="Nachname" value="' + esc(draft.last) + '">' +
@@ -520,6 +612,45 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     return '<p><strong>' + esc(other.name) + '</strong> ist ' + esc(W.roleName(other.role)) + '.</p>';
   }
 
+  function gridMetrics() {
+    var count = (state.players || []).length || 1;
+    var cols = state.gridCols === 2 || state.gridCols === 3
+      ? state.gridCols
+      : (window.WerwolfNet ? window.WerwolfNet.gridColumns(count) : 2);
+    var width = Math.min(window.innerWidth || 412, 520);
+    var height = window.innerHeight || 915;
+    var edge = window.WerwolfNet ? window.WerwolfNet.cardEdge(count, cols, width, height) : { size: 140 };
+    return { cols: cols, size: edge.size };
+  }
+
+  function seatLocked(id) {
+    var owner = null;
+    if (state.lockMap) owner = state.lockMap[id] || state.lockMap[String(id)] || null;
+    else if (window.WerwolfNet && window.WerwolfNet.online && window.WerwolfNet.online()) owner = window.WerwolfNet.lockOwner(id);
+    if (!owner) return false;
+    if (!state.remote && window.WerwolfNet && owner === window.WerwolfNet.selfId()) return false;
+    if (state.remote) return true;
+    return true;
+  }
+
+  function sortedSeats() {
+    return window.WerwolfNet ? window.WerwolfNet.sortPlayers(state.players || []) : (state.players || []).slice();
+  }
+
+  function nameGrid(html) {
+    var g = gridMetrics();
+    return '<div class="name-grid" data-cols="' + g.cols + '" style="--card:' + g.size + 'px;grid-template-columns:repeat(' + g.cols + ',' + g.size + 'px)">' + html + '</div>';
+  }
+
+  function nameButton(p, opts) {
+    var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
+    var locked = seatLocked(p.id);
+    var disabled = !!(opts.disabled || locked);
+    return '<button type="button" class="choice' + (opts.cls || '') + (locked ? ' locked' : '') + '" data-act="' + opts.act + '" data-id="' + p.id + '"' +
+      (disabled ? ' disabled' : '') + ' style="--name-size:' + font + 'px"><span><span class="who">' + esc(p.name) + '</span><span class="meta">' +
+      esc(locked ? 'belegt' : opts.meta) + '</span></span></button>';
+  }
+
   function renderReveal() {
     if (state.step === 'love') {
       var lover = player(state.activeId);
@@ -564,20 +695,21 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         '<button type="button" class="btn" data-act="ack">Verstanden, verdecken</button>' +
         '<button type="button" class="btn secondary" data-act="back">Zurück</button></section>';
     }
-    var names = state.players.map(function (p) {
-      var seen = W.revealDone(state, p);
-      return '<button type="button" class="choice' + (seen ? ' seen' : '') + '" data-act="reveal-pick" data-id="' + p.id + '">' +
-        '<span><span class="who">' + esc(p.name) + '</span>' +
-        (seen ? '<span class="meta">fertig, noch mal möglich</span>' : '<span class="meta">Rolle ansehen</span>') +
-        '</span></button>';
-    }).join('');
-    var startReady = W.revealReady(state);
-    var pending = W.pendingNames(state);
-    var confirm = state.confirmUndoDeal
+    var names = nameGrid(sortedSeats().map(function (p) {
+      var seen = state.finishedIds ? state.finishedIds.indexOf(p.id) >= 0 : W.revealDone(state, p);
+      return nameButton(p, {
+        act: 'reveal-pick',
+        cls: seen ? ' seen' : '',
+        meta: seen ? 'fertig, noch mal möglich' : 'Rolle ansehen'
+      });
+    }).join(''));
+    var startReady = state.finishedIds ? state.finishedIds.length >= (state.players || []).length && !(state.pendingNamesPublic && state.pendingNamesPublic.length) : W.revealReady(state);
+    var pending = state.pendingNamesPublic || W.pendingNames(state);
+    var confirm = state.remote ? '' : (state.confirmUndoDeal
       ? '<div class="banner error">Mehr als eine Person hat die Rolle schon gesehen. Zurück zur Rollenwahl verwirft die verteilten Rollen.</div>' +
         '<button type="button" class="btn bad" data-act="undo-deal" data-confirm="1">Ja, Rollen verwerfen</button>' +
         '<button type="button" class="btn secondary" data-act="undo-deal-no">Abbrechen</button>'
-      : '<button type="button" class="btn secondary" data-act="undo-deal">Zurück</button>';
+      : '<button type="button" class="btn secondary" data-act="undo-deal">Zurück</button>');
     return header('Rollen', 'Wer ist dran?') +
       hero('🎭', 'Rollen aufdecken') +
       '<div class="stack">' + errorHtml() +
@@ -592,23 +724,26 @@ if (!(poolOn && role === 'werwolf')) sum += count;
   }
 
   function renderDiscuss() {
-    var list = state.players.map(function (p, index) {
+    var list = nameGrid(sortedSeats().map(function (p) {
       var badges = [];
       if (p.id === state.mayorId && p.alive) badges.push('Bürgermeister');
       if (!p.alive) badges.push('tot');
-      return '<div class="player' + (p.alive ? '' : ' dead') + '"><span class="life" role="img" aria-label="' + (p.alive ? 'lebt' : 'tot') + '">' + (p.alive ? '❤️' : '💀') + '</span><span><span class="player-name">' + (index + 1) + '. ' + esc(p.name) +
-        '</span>' + (badges.length ? '<span class="sub">' + esc(badges.join(' · ')) + '</span>' : '') + '</span></div>';
-    }).join('');
-    var telling = !!state.selfTell;
+      var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
+      return '<div class="choice' + (p.alive ? '' : ' dead') + '" style="--name-size:' + font + 'px"><span><span class="who">' + esc(p.name) +
+        '</span>' + (badges.length ? '<span class="meta">' + esc(badges.join(' · ')) + '</span>' : '') + '</span></div>';
+    }).join(''));
+    var telling = !!state.selfTell && !state.remoteNarrator;
     return header(phaseEyebrow(), 'Diskussion') +
       hero('☀️', 'Tag') +
       '<div class="stack">' + mayorHtml() +
-      '<p class="lead">' + (telling
+      '<p class="lead">' + (state.remoteNarrator
+        ? 'Der Erzähler hat das Host-Handy. Hier siehst du nur den Stand.'
+        : (telling
         ? 'Du behältst das Handy. Trag Duell und Abstimmung ein. Die App wertet nach den bisherigen Regeln aus, inklusive Bürgermeisterstimme, Politiker und Jäger.'
-        : 'Redet offen. Das Duell geht vor der Abstimmung, einmal pro Russe. Die Abstimmung ist geheim.') + '</p>' +
-      (telling ? '<h2>Alle Rollen</h2><div class="stack">' + roleSheetRows() + '</div>' : '<div class="stack">' + list + '</div>') +
-      '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' +
-      '<button type="button" class="btn" data-act="to-vote">Zur Abstimmung</button>' +
+        : 'Redet offen. Das Duell geht vor der Abstimmung, einmal pro Russe. Die Abstimmung ist geheim.')) + '</p>' +
+      (telling ? '<h2>Alle Rollen</h2><div class="stack">' + roleSheetRows() + '</div>' : list) +
+      (state.remoteNarrator ? '' : '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' +
+      '<button type="button" class="btn" data-act="to-vote">Zur Abstimmung</button>') +
       abortLink() + '</div>';
   }
 
@@ -742,39 +877,47 @@ if (!(poolOn && role === 'werwolf')) sum += count;
   }
 
   function renderNightList() {
-    var done = state.nightDone || [];
-    var waits = W.nightWaitsForAmor(state);
-    var names = W.living(state).map(function (p) {
+    var done = state.finishedIds || state.nightDone || [];
+    var waits = !state.remote && W.nightWaitsForAmor(state);
+    var names = nameGrid(sortedSeats().map(function (p) {
       var finished = done.indexOf(p.id) >= 0;
+      var dead = !p.alive;
       var held = waits && p.role !== 'amor';
-      return '<button type="button" class="choice' + (finished ? ' done' : '') + '" data-act="night-pick" data-id="' + p.id + '"' +
-        (finished || held ? ' disabled' : '') + '><span><span class="who">' + esc(p.name) + '</span>' +
-        '<span class="meta">' + (finished ? 'schon dran' : 'tippen, wenn du dran bist') + '</span></span></button>';
-    }).join('');
+      return nameButton(p, {
+        act: 'night-pick',
+        cls: (finished ? ' done' : '') + (dead ? ' dead' : ''),
+        disabled: finished || held || dead,
+        meta: dead ? 'tot' : (finished ? 'schon dran' : 'tippen, wenn du dran bist')
+      });
+    }).join(''));
     return header(phaseEyebrow(), 'Wer ist wach?') +
       hero('🌙', 'Nacht') +
       '<div class="stack">' + errorHtml() +
       '<p class="lead">' + (waits
         ? 'Zuerst tippt Amor. Zurück vor dem Bestätigen verbraucht nichts. Danach ist die Reihenfolge egal, die Wölfe erst nach Amor.'
         : 'Jede lebende Person tippt den eigenen Namen. Die Reihenfolge ist egal. Wer fertig ist, wird grau und kann diese Nacht nicht noch einmal.') + '</p>' +
-      '<div class="stack">' + names + '</div>' + abortLink() + '</div>';
+      names + abortLink() + '</div>';
   }
 
   function renderVoteList() {
-    var done = state.voteDone || [];
-    var names = W.living(state).map(function (p) {
+    var done = state.finishedIds || state.voteDone || [];
+    var names = nameGrid(sortedSeats().map(function (p) {
       var finished = done.indexOf(p.id) >= 0;
-      return '<button type="button" class="choice' + (finished ? ' done' : '') + '" data-act="vote-pick" data-id="' + p.id + '"' +
-        (finished ? ' disabled' : '') + '><span><span class="who">' + esc(p.name) + '</span>' +
-        '<span class="meta">' + (finished ? 'Stimme abgegeben' : (p.id === state.mayorId ? 'Bürgermeister, Stimme 1,5' : 'Stimme abgeben')) + '</span></span></button>';
-    }).join('');
+      var dead = !p.alive;
+      return nameButton(p, {
+        act: 'vote-pick',
+        cls: (finished ? ' done' : '') + (dead ? ' dead' : ''),
+        disabled: finished || dead,
+        meta: dead ? 'tot' : (finished ? 'Stimme abgegeben' : (p.id === state.mayorId ? 'Bürgermeister, Stimme 1,5' : 'Stimme abgeben'))
+      });
+    }).join(''));
     return header(phaseEyebrow(), 'Wer stimmt ab?') +
       hero('🗳️', 'Abstimmung') +
       '<div class="stack">' + errorHtml() +
       '<p class="lead">' + (state.selfTell
         ? 'Tippe nacheinander jede lebende Person und danach ihre Stimme. Die Reihenfolge ist egal. Zurück vor dem Bestätigen verbraucht die Stimme nicht. Der Bürgermeister zählt 1,5.'
         : 'Jede lebende Person tippt den eigenen Namen und stimmt geheim ab. Danach ist der Name grau. Gezählt wird, wenn alle abgestimmt haben. Der Bürgermeister zählt 1,5.') + '</p>' +
-      '<div class="stack">' + names + '</div>' + abortLink() + '</div>';
+      names + abortLink() + '</div>';
   }
 
   function renderNightReady() {
@@ -928,23 +1071,23 @@ if (!(poolOn && role === 'werwolf')) sum += count;
 
   function renderHunter() {
     if (state.step === 'list' || state.step === 'handoff') {
-      var cast = state.hunterCast && state.hunterCast.length ? state.hunterCast : (state.hunters || []);
       var pending = state.hunters || [];
-      var names = cast.map(function (id) {
-        var p = player(id);
-        if (!p) return '';
-        var finished = pending.indexOf(id) < 0;
-        return '<button type="button" class="choice' + (finished ? ' done' : '') + '" data-act="hunter-pick" data-id="' + id + '"' +
-          (finished ? ' disabled' : '') + '><span><span class="who">' + esc(p.name) + '</span>' +
-          '<span class="meta">' + (finished ? 'hat geschossen' : 'Schuss abgeben') + '</span></span></button>';
-      }).join('');
+      var names = nameGrid(sortedSeats().map(function (p) {
+        var shooting = pending.indexOf(p.id) >= 0;
+        return nameButton(p, {
+          act: 'hunter-pick',
+          cls: shooting ? '' : ' done',
+          disabled: !shooting,
+          meta: shooting ? 'Schuss abgeben' : 'nicht dran'
+        });
+      }).join(''));
       return header('Jäger', 'Wer schießt?') +
         hero('🏹', 'Jäger') +
         '<div class="stack">' + errorHtml() +
         '<p class="lead">' + (state.selfTell
           ? 'Tippe den Jäger, der schießt. Die Reihenfolge ist egal. Zurück vor dem Schuss verbraucht nichts.'
           : 'Jeder Jäger, der schießen muss, tippt den eigenen Namen. Die Reihenfolge ist egal. Danach ist der Name grau.') + '</p>' +
-        '<div class="stack">' + names + '</div></div>';
+        names + '</div>';
     }
     if (state.step === 'ready') {
       var ready = player(state.hunterId);
@@ -972,10 +1115,14 @@ if (!(poolOn && role === 'werwolf')) sum += count;
   function renderDuel() {
     var duel = state.duel || { stage: 'who' };
     if (duel.stage === 'who') {
-      var people = W.living(state).map(function (p) {
-        return '<button type="button" class="choice" data-act="duel-pick" data-id="' + p.id + '"><span><span class="who">' + esc(p.name) + '</span>' +
-          '<span class="meta">Das bin ich</span></span></button>';
-      }).join('');
+      var people = nameGrid(sortedSeats().map(function (p) {
+        return nameButton(p, {
+          act: 'duel-pick',
+          cls: p.alive ? '' : ' dead',
+          disabled: !p.alive,
+          meta: p.alive ? 'Das bin ich' : 'tot'
+        });
+      }).join(''));
       return header('Duell', 'Wer bist du?') + hero('🎲', 'Duell') + '<div class="stack">' + errorHtml() +
         '<p class="lead">' + (state.selfTell ? 'Tippe den Namen, der das Duell ansagt. Die Liste hat keine feste Reihenfolge.' : 'Tippe deinen Namen.') + '</p>' +
         '<div class="stack">' + people + '</div>' +
@@ -1044,8 +1191,11 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       '<div class="stack"><div class="banner win">' + esc(W.WIN_TEXT[state.winner] || 'Spiel zu Ende') + '</div>' +
       (state.winReason ? '<p class="lead">' + esc(state.winReason) + '</p>' : '') +
       '<div class="card">' + rows + '</div>' +
-      '<h2>Punkte</h2>' + scoreboardHtml(true) + resetControl() +
-      '<p class="hint">Das Home-Symbol oben behält die Namen und öffnet die Lobby. Punkte bleiben gespeichert.</p></div>';
+      (state.remote
+        ? '<p class="hint">Punkte und Statistik stehen nur auf dem Host-Handy.</p>'
+        : '<h2>Punkte</h2>' + scoreboardHtml(true) + resetControl() +
+          '<p class="hint">Das Home-Symbol oben behält die Namen und öffnet die Lobby. Punkte bleiben gespeichert.</p>') +
+      '</div>';
   }
 
   function scoreboardHtml(highlight) {
@@ -1205,22 +1355,34 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       app.innerHTML = '<p class="lead">Laden …</p>';
       return;
     }
-    if (!state || state.screen !== 'lobby') statsMode = null;
-    var html = '';
-    if (statsMode && state.screen === 'lobby') html = renderStats();
-    else if (state.screen === 'lobby') html = renderLobby();
-    else if (state.screen === 'setup') html = renderSetup();
-    else if (state.screen === 'reveal') html = renderReveal();
-    else if (state.screen === 'discuss') html = renderDiscuss();
-    else if (state.screen === 'announce') html = renderAnnounce();
-    else if (state.screen === 'night' || state.screen === 'vote') html = renderTurn();
-    else if (state.screen === 'hunter') html = renderHunter();
-    else if (state.screen === 'duel') html = renderDuel();
-    else if (state.screen === 'end') html = renderEnd();
-    else html = renderLobby();
-    app.innerHTML = html;
-    armQuiet(!!(state && state.selfTell && state.screen === 'night' && state.step === 'call' && state.narratorQuiet));
-    syncSettings();
+    var overlay = window.WerwolfNet && window.WerwolfNet.display && window.WerwolfNet.display();
+    var auth = state;
+    if (overlay) state = overlay;
+    try {
+      if (!state || state.screen !== 'lobby') statsMode = null;
+      var html = '';
+      var away = window.WerwolfNet && window.WerwolfNet.hostAway ? window.WerwolfNet.hostAway() : '';
+      if (uiJoin && !isGuest()) html = renderJoin();
+      else if (statsMode && state.screen === 'lobby') html = renderStats();
+      else if (state.screen === 'wait') html = renderWait();
+      else if (state.screen === 'lobby') html = renderLobby();
+      else if (state.screen === 'setup') html = renderSetup();
+      else if (state.screen === 'reveal') html = renderReveal();
+      else if (state.screen === 'discuss') html = renderDiscuss();
+      else if (state.screen === 'announce') html = renderAnnounce();
+      else if (state.screen === 'night' || state.screen === 'vote') html = renderTurn();
+      else if (state.screen === 'hunter') html = renderHunter();
+      else if (state.screen === 'duel') html = renderDuel();
+      else if (state.screen === 'end') html = renderEnd();
+      else html = renderLobby();
+      if (away && state.screen !== 'wait') html = '<div class="banner info">' + esc(away) + '</div>' + html;
+      if (!uiJoin) html = mpBar() + html;
+      app.innerHTML = html;
+      armQuiet(!!(state && state.selfTell && state.screen === 'night' && state.step === 'call' && state.narratorQuiet));
+      syncSettings();
+    } finally {
+      state = auth;
+    }
   }
 
   function syncSettings() {
@@ -1300,8 +1462,60 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       act({ type: 'set-heals', value: heals });
       return;
     }
+    if (type === 'mp-host') {
+      mpError = '';
+      window.WerwolfNet.host().then(function () { uiJoin = false; }, function (error) {
+        mpError = (error && error.message) || 'Mehrspieler braucht die Berechtigung und einen neuen OpenScr-Build.';
+        render();
+      });
+      return;
+    }
+    if (type === 'mp-join') {
+      mpError = '';
+      uiJoin = true;
+      window.WerwolfNet.discover().then(function () {}, function (error) {
+        mpError = (error && error.message) || 'Suche nicht verfügbar.';
+        render();
+      });
+      render();
+      return;
+    }
+    if (type === 'mp-back') {
+      uiJoin = false;
+      if (window.WerwolfNet.stopDiscovery) window.WerwolfNet.stopDiscovery();
+      render();
+      return;
+    }
+    if (type === 'mp-room') {
+      mpError = '';
+      window.WerwolfNet.joinRoom(el.getAttribute('data-room'), 'Handy').then(function () { uiJoin = false; }, function (error) {
+        mpError = (error && error.message) || 'Beitritt abgelehnt.';
+        render();
+      });
+      return;
+    }
+    if (type === 'mp-scan') {
+      mpError = '';
+      window.WerwolfNet.joinQr(null, 'Handy').then(function () { uiJoin = false; }, function (error) {
+        mpError = (error && error.message) || 'QR-Scan nicht verfügbar.';
+        render();
+      });
+      return;
+    }
+    if (type === 'mp-approve') { window.WerwolfNet.approve(el.getAttribute('data-id')); return; }
+    if (type === 'mp-deny') { window.WerwolfNet.deny(el.getAttribute('data-id')); return; }
+    if (type === 'mp-qr') { window.WerwolfNet.showQr(el.getAttribute('data-fn') || 'showQr'); return; }
+    if (type === 'mp-leave') {
+      var guestLeft = isGuest();
+      if (window.WerwolfNet.leave) window.WerwolfNet.leave();
+      uiJoin = false;
+      if (guestLeft) state = W.newLobby();
+      render();
+      return;
+    }
+    if (isGuest() && (type === 'toggle-self-tell' || type === 'stats' || type === 'reset-ask')) return;
     if (type === 'confirm') {
-      var ids = (state.selection || []).slice();
+      var ids = (ui().selection || []).slice();
       act({ type: 'confirm', id: ids.length ? ids[0] : undefined, ids: ids });
       return;
     }
@@ -1344,12 +1558,15 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     settingsPanel.hidden = true;
   });
   document.getElementById('set-tell').addEventListener('click', function () {
+    if (isGuest()) return;
     act({ type: 'toggle-self-tell' });
   });
   document.getElementById('set-wolf').addEventListener('click', function () {
+    if (isGuest()) return;
     act({ type: 'toggle-wolf-action' });
   });
   document.getElementById('set-amor').addEventListener('click', function () {
+    if (isGuest()) return;
     act({ type: 'toggle-quick-amor' });
   });
 
@@ -1398,7 +1615,45 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     persist();
   });
 
+  window.addEventListener('resize', function () {
+    if (!booting) render();
+  });
+
+  function onNet() {
+    if (!isGuest()) {
+      ensureGrid();
+      applyScores();
+      persist();
+    }
+    render();
+  }
+
   async function boot() {
+    var guestBoot = false;
+    if (window.WerwolfNet && window.WerwolfNet.available && window.WerwolfNet.available()) {
+      window.WerwolfNet.hold(true);
+      window.WerwolfNet.attach({
+        apply: function (game, action) { return W.send(game, action); },
+        getState: function () { return state; },
+        setState: function (next) { state = next; },
+        after: function () { ensureGrid(); },
+        changed: onNet
+      });
+      try {
+        var resumed = await window.WerwolfNet.resume();
+        guestBoot = !!(resumed && resumed.role === 'guest');
+      } catch (error) { guestBoot = false; }
+    }
+    if (guestBoot) {
+      if (!state || !state.remote) {
+        state = { v: 1, screen: 'wait', players: [], remote: true, waitText: 'Verbinden …' };
+      }
+      booting = false;
+      saveReady = true;
+      window.WerwolfNet.hold(false);
+      render();
+      return;
+    }
     scores = W.grantPoints(await readKey(SCORE_KEY), []);
     roster = loadRoster(await readKey(PLAYERS_KEY));
     history = loadHistory(await readKey(HISTORY_KEY));
@@ -1427,10 +1682,12 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       if (savedSetup && 'rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
     }
     if (state.screen === 'setup') rememberSetup();
+    ensureGrid();
     booting = false;
     saveReady = true;
     applyScores();
     persist();
+    if (window.WerwolfNet && window.WerwolfNet.hold) window.WerwolfNet.hold(false);
     render();
   }
 
