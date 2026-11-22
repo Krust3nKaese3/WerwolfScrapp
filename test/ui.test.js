@@ -120,7 +120,7 @@ async function checkLegacy(browser, base) {
   await opened.page.locator('.choice', { hasText: 'Haus von Anna' }).click();
   await opened.page.getByRole('button', { name: 'Fertig' }).click();
   const after = await opened.page.locator('#app').innerText();
-  assert.ok(after.indexOf('Wer ist wach') >= 0, after);
+  assert.ok(after.indexOf('Tippe auf deinen Namen') >= 0, after);
   await opened.page.close();
 }
 
@@ -197,7 +197,7 @@ async function reachWolf(page) {
   for (let i = 0; i < 20; i++) {
     const text = await page.locator('#app').innerText();
     if (text.indexOf('Das Rudel wählt') >= 0) return text;
-    if (text.indexOf('Wer ist wach') >= 0) {
+    if (text.indexOf('Tippe auf deinen Namen') >= 0) {
       await page.locator('button[data-act="night-pick"]:not([disabled])').first().click();
       await page.getByRole('button', { name: 'Go' }).click();
       continue;

@@ -373,7 +373,7 @@ async function gearMidGame(browser, base) {
     localStorage.setItem('werwolf.game.v1', JSON.stringify(payload));
   }, gearNight());
   await page.goto(base);
-  await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
+  await page.getByRole('heading', { name: 'Nacht 1' }).waitFor();
   await page.getByRole('button', { name: 'Einstellungen' }).click();
   await page.getByRole('heading', { name: 'Einstellungen' }).waitFor();
   assert.ok((await page.locator('#set-tell').innerText()).indexOf('aus') >= 0);
@@ -382,7 +382,7 @@ async function gearMidGame(browser, base) {
   await page.locator('#set-amor').click();
   assert.ok((await page.locator('#set-amor').innerText()).indexOf('aus') >= 0);
   await page.locator('#settings-close').click();
-  await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
+  await page.getByRole('heading', { name: 'Nacht 1' }).waitFor();
   const names = await page.locator('button[data-act="night-pick"]:not([disabled])').count();
   assert.strictEqual(names, 4);
   await page.getByRole('button', { name: 'Einstellungen' }).click();
@@ -395,7 +395,7 @@ async function gearMidGame(browser, base) {
   await page.getByRole('button', { name: 'Einstellungen' }).click();
   await page.locator('#set-tell').click();
   await page.locator('#settings-close').click();
-  await page.getByRole('heading', { name: 'Wer ist wach?' }).waitFor();
+  await page.getByRole('heading', { name: 'Nacht 1' }).waitFor();
   assert.strictEqual(await page.locator('button[data-act="night-pick"]:not([disabled])').count(), 4);
   await page.close();
 }
