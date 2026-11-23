@@ -91,9 +91,14 @@
     }
   }
 
+  function browserGuest() {
+    var bridge = bridgeObject();
+    return !!(bridge && bridge.guest === true);
+  }
+
   function qrButtons(mp) {
     var buttons = [];
-    if (!mp) return buttons;
+    if (!mp || browserGuest()) return buttons;
     if (typeof mp.showQr === 'function') buttons.push({ fn: 'showQr', label: 'QR-Code' });
     if (typeof mp.showWifiQr === 'function') buttons.push({ fn: 'showWifiQr', label: 'WLAN-QR' });
     if (typeof mp.showHotspotQr === 'function') buttons.push({ fn: 'showHotspotQr', label: 'Hotspot-QR' });
@@ -571,6 +576,7 @@
 
     return {
       host: function () {
+        if (browserGuest()) return Promise.reject(new Error('Im Browser ist nur die Gast-Ansicht da.'));
         return Promise.resolve(mp.host({
           maxPlayers: MAX_PLAYERS,
           name: 'Werwolf',
@@ -642,7 +648,7 @@
           }
           ping();
           return info;
-        });
+        }, function () { return null; });
       },
       leave: function () {
         var was = role;
@@ -938,6 +944,7 @@
     nameSize: nameSize,
     stampGrid: stampGrid,
     syncWake: syncWake,
+    browserGuest: browserGuest,
     hold: function (on) {
       holdPublish = !!on;
       if (!holdPublish && live && live.flush) live.flush();

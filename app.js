@@ -159,7 +159,8 @@
   }
 
   function isGuest() {
-    return !!(window.WerwolfNet && window.WerwolfNet.role && window.WerwolfNet.role() === 'guest');
+    return !!((window.WerwolfNet && window.WerwolfNet.browserGuest && window.WerwolfNet.browserGuest()) ||
+      (window.WerwolfNet && window.WerwolfNet.role && window.WerwolfNet.role() === 'guest'));
   }
 
   function ensureGrid() {
@@ -1498,6 +1499,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       return;
     }
     if (type === 'mp-host') {
+      if (isGuest()) return;
       mpError = '';
       window.WerwolfNet.host().then(function () { uiJoin = false; }, function (error) {
         mpError = (error && error.message) || 'Mehrspieler braucht die Berechtigung und einen neuen OpenScr-Build.';
@@ -1664,7 +1666,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
   }
 
   async function boot() {
-    var guestBoot = false;
+    var guestBoot = !!(window.WerwolfNet && window.WerwolfNet.browserGuest && window.WerwolfNet.browserGuest());
     if (window.WerwolfNet && window.WerwolfNet.available && window.WerwolfNet.available()) {
       window.WerwolfNet.hold(true);
       window.WerwolfNet.attach({
@@ -1676,7 +1678,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       });
       try {
         var resumed = await window.WerwolfNet.resume();
-        guestBoot = !!(resumed && resumed.role === 'guest');
+        guestBoot = guestBoot || !!(resumed && resumed.role === 'guest');
       } catch (error) { guestBoot = false; }
     }
     if (guestBoot) {
