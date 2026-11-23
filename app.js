@@ -21,6 +21,7 @@
   var confirmReset = false;
   var saveReady = false;
   var booting = true;
+  var renderQueued = false;
 
   var HOME = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="M4 10.5 12 4l8 6.5V20h-5.2v-6.2H9.2V20H4z"/></svg>';
   var HOUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 11 12 4l8 7v9H4z"/><path fill="none" stroke="currentColor" stroke-width="2" d="M10 20v-6h4v6"/></svg>';
@@ -1385,7 +1386,22 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, name: player.first });
   }
 
+  function typingField() {
+    var el = document.activeElement;
+    if (!el || !app.contains(el)) return false;
+    if (el.isContentEditable) return true;
+    var tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  }
+
   function render() {
+    // Tastatur auf Android feuert resize. Ein innerHTML-Neuaufbau würde das
+    // fokussierte Feld entfernen und die Tastatur sofort wieder schließen.
+    if (typingField()) {
+      renderQueued = true;
+      return;
+    }
+    renderQueued = false;
     if (booting) {
       app.innerHTML = '<p class="lead">Laden …</p>';
       return;
@@ -1449,6 +1465,13 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       if (btn) btn.disabled = false;
     }, 800);
   }
+
+  app.addEventListener('focusout', function () {
+    if (!renderQueued) return;
+    setTimeout(function () {
+      if (renderQueued && !typingField()) render();
+    }, 0);
+  });
 
   app.addEventListener('click', function (event) {
     if (rendering) return;
@@ -1648,10 +1671,6 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var reason = event.reason;
     W.note(state, 'Fehler ' + (reason && reason.message ? reason.message : reason) + '\n' + (reason && reason.stack ? reason.stack : ''));
     persist();
-  });
-
-  window.addEventListener('resize', function () {
-    if (!booting) render();
   });
 
   function onNet() {
