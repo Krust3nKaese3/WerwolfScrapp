@@ -147,6 +147,48 @@ async function main() {
   N.syncWake({ screen: 'night' }, 'guest');
   assert.strictEqual(wake.n, 0);
   assert.deepStrictEqual(N.qrButtons({ showQr: function () {}, send: function () {} }).map(function (b) { return b.fn; }), ['showQr']);
+  assert.deepStrictEqual(N.qrButtons({
+    showQr: function () {},
+    showWifiQr: function () {},
+    showGameQr: function () {},
+    showHotspotQr: function () {}
+  }).map(function (b) { return b.fn; }), ['showQr', 'showWifiQr', 'showHotspotQr', 'showGameQr']);
+  global.OpenScrBridge.guest = true;
+  assert.strictEqual(N.browserGuest(), true);
+  assert.deepStrictEqual(N.qrButtons({
+    showQr: function () {},
+    showWifiQr: function () {},
+    showGameQr: function () {},
+    showHotspotQr: function () {}
+  }), []);
+  var hostCalls = 0;
+  var onMsg = null;
+  var browserMp = {
+    host: function () { hostCalls += 1; return Promise.resolve({}); },
+    send: function () { return Promise.resolve({ seq: 1 }); },
+    showQr: function () { return Promise.reject(new Error('Im Browser ist nur die Gast-Ansicht da.')); },
+    onMessage: function (cb) { onMsg = cb; return function () {}; },
+    onPlayersChanged: function () { return function () {}; },
+    onJoinRequest: function () { return function () {}; },
+    onResumed: function () { return function () {}; },
+    onHostAway: function () { return function () {}; }
+  };
+  var browserBox = { state: { screen: 'lobby', players: [] } };
+  var browserSession = N.createSession(browserMp, {
+    apply: function () {},
+    getState: function () { return browserBox.state; },
+    setState: function (next) { browserBox.state = next; },
+    changed: function () {}
+  });
+  await browserSession.host().then(function () { throw new Error('host im Browser'); }, function () {
+    assert.strictEqual(hostCalls, 0);
+  });
+  assert.strictEqual(await browserSession.showQr('showQr'), null);
+  onMsg({ from: 'host', data: { t: 'pub', state: { v: 1, screen: 'night', remote: true, players: [{ id: 1, name: 'Anna', role: '' }], gridCols: 2 } } });
+  assert.strictEqual(browserBox.state.screen, 'night');
+  assert.strictEqual(browserBox.state.players.length, 1);
+  assert.strictEqual(browserBox.state.players[0].role, '');
+  delete global.OpenScrBridge.guest;
   assert.deepStrictEqual(N.qrButtons({ send: function () {} }), []);
   delete global.OpenScrBridge;
   const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
