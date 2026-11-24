@@ -197,7 +197,7 @@
     stripBag(copy, false);
     if (!ended) {
       (copy.players || []).forEach(blankSeat);
-      delete copy.counts;
+      if (copy.screen !== 'lobby') delete copy.counts;
     }
     if (copy.screen === 'setup') {
       copy.screen = 'wait';
@@ -214,10 +214,13 @@
       copy.actorId = null;
     }
     copy.remote = true;
+    if (copy.screen === 'lobby' && typeof root.WerwolfLibrary === 'function') {
+      copy.library = clone(root.WerwolfLibrary());
+    }
     copy.lockMap = clone(locks || {});
     copy.finishedIds = done;
     copy.pendingNamesPublic = pending;
-    copy.error = '';
+    if (copy.screen !== 'lobby') copy.error = '';
     return copy;
   }
 
@@ -310,7 +313,13 @@
 
   var CLAIM = { 'reveal-pick': 1, 'night-pick': 1, 'vote-pick': 1, 'hunter-pick': 1, 'duel-pick': 1 };
   var TURN = { go: 1, back: 1, ack: 1, confirm: 1, select: 1, skip: 1, cancel: 1, 'reveal-see': 1 };
-  var GUEST_GLOBAL = { 'start-game': 1, ack: 1, 'to-vote': 1, 'to-duel': 1, cancel: 1 };
+  var GUEST_GLOBAL = {
+    'start-game': 1, ack: 1, 'to-vote': 1, 'to-duel': 1, cancel: 1,
+    'add-name': 1, 'add-player': 1, deal: 1,
+    'set-count': 1, 'set-nach': 1, 'set-heals': 1, 'set-wolf-min': 1, 'set-wolf-max': 1,
+    'toggle-seer': 1, 'toggle-wolf-action': 1, 'toggle-quick-amor': 1, 'toggle-self-tell': 1,
+    'toggle-pool': 1, suggest: 1
+  };
 
   function createSession(mp, hooks) {
     var role = 'off';
@@ -456,8 +465,29 @@
         return;
       }
       if (role !== 'host') return;
-      if (auth().selfTell && deviceId !== selfId) {
+      if (auth().selfTell && deviceId !== selfId && auth().screen !== 'lobby') {
         done();
+        return;
+      }
+      if (action.type === 'add-player' && action.create && hooks.createPlayer) {
+        hooks.createPlayer(action, function (info, error) {
+          var game = auth();
+          if (!game) return;
+          if (!info) {
+            game.error = (error && error.message) || 'Der Name konnte nicht gespeichert werden.';
+            done();
+            return;
+          }
+          hooks.apply(game, {
+            type: 'add-player',
+            pid: info.pid,
+            first: info.first,
+            last: info.last,
+            tag: info.tag || '',
+            name: info.name
+          });
+          applied();
+        });
         return;
       }
       if (auth().selfTell && deviceId === selfId) {
@@ -498,6 +528,8 @@
       if (data.t === 'pub') {
         lastPub = data.state;
         away = false;
+        if (data.state && data.state.library && hooks.takeLibrary) hooks.takeLibrary(data.state.library);
+        if (data.state) delete data.state.library;
         if (!holding) hooks.setState(data.state);
         ping();
         return;

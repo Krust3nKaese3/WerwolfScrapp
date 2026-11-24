@@ -188,6 +188,10 @@
     return '';
   }
 
+  window.WerwolfLibrary = function () {
+    return { roster: roster, scores: scores, history: history };
+  };
+
   function isGuest() {
     return !!((window.WerwolfNet && window.WerwolfNet.browserGuest && window.WerwolfNet.browserGuest()) ||
       (window.WerwolfNet && window.WerwolfNet.role && window.WerwolfNet.role() === 'guest'));
@@ -248,6 +252,7 @@
           id: String(player.id),
           first: String(player.first).trim(),
           last: String(player.last).trim(),
+          tag: String(player.tag || '').trim(),
           created: Number(player.created) || 0
         };
       })
@@ -328,6 +333,7 @@
       return;
     }
     confirmReset = false;
+    if ((isGuest() || (state && state.remote)) && action.type === 'remove-name') return;
     if (window.WerwolfNet && window.WerwolfNet.online && window.WerwolfNet.online()) {
       rendering = true;
       try { window.WerwolfNet.local(action); }
@@ -550,14 +556,10 @@
         '</span>' + (remote ? '' : '<button type="button" class="icon-btn" data-act="remove-name" data-id="' + p.id + '" aria-label="' +
         esc(p.name) + ' entfernen">✕</button>') + '</div>';
     }).join('');
-    if (remote) {
-      return header('Gast', 'Werwolf') +
-        '<div class="stack"><p class="lead">Das Spiel liegt auf dem Host-Handy. Hier ist kein eigener Spielstand, keine Spielerliste und keine Statistik.</p>' +
-        names + '</div>';
-    }
-    if (window.OpenScrRoster && !remote) {
+    if (window.OpenScrRoster) {
       return header('', 'Werwolf') +
         '<div class="stack">' + errorHtml() + (mpError ? '<div class="banner error">' + esc(mpError) + '</div>' : '') +
+        (remote ? '<style>#openscr-roster .orl-x{display:none}</style>' : '') +
         '<div id="openscr-roster"></div></div>';
     }
     return header('', 'Werwolf') +
@@ -1518,7 +1520,16 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     if (!player) return;
     draft.query = '';
     draft.last = '';
-    act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, tag: player.tag || '', name: player.tag ? (player.first + ' #' + player.tag) : player.first });
+    var label = player.tag ? (player.first + ' #' + player.tag) : ((player.first + ' #' + player.last).trim());
+    if (state && (isGuest() || state.remote)) {
+      var known = (state.players || []).some(function (seat) { return String(seat.pid || '') === String(player.id); });
+      if (!known) {
+        state.players.push({ id: state.nextId || (state.players.length + 1), pid: player.id, first: player.first, last: player.last, tag: player.tag || player.last, name: label });
+        state.nextId = (state.nextId || state.players.length) + 1;
+      }
+      pushSharedRoster();
+    }
+    act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, tag: player.tag || '', name: label });
   }
 
   function submitName() {
@@ -1536,6 +1547,12 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     if (!last) {
       state.error = 'Bitte auch den Tag eingeben.';
       render();
+      return;
+    }
+    if (isGuest() || (state && state.remote)) {
+      draft.query = '';
+      draft.last = '';
+      act({ type: 'add-player', create: true, first: first, last: last, tag: last, name: first + ' #' + last });
       return;
     }
     var bridge = bridgePlayers();
@@ -1740,7 +1757,8 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     return {
       query: draft.query || '',
       directory: (roster.players || []).map(function (player) {
-        return { id: String(player.id), label: player.tag ? (player.first + ' #' + player.tag) : ((player.first + ' ' + player.last).trim() || player.first) };
+        var tag = player.tag || (!player.first || String(player.first).indexOf(' ') < 0 ? '' : player.last);
+        return { id: String(player.id), label: tag ? (player.first + ' #' + tag) : ((player.first + ' ' + player.last).trim() || player.first) };
       }),
       seated: (state.players || []).map(function (player) {
         return { id: String(player.id), pid: String(player.pid || ''), label: rosterLabel(player) };
@@ -1748,6 +1766,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       startLabel: 'Rollen verteilen',
       startDisabled: (state.players || []).length < 4,
       statsLabel: 'Statistik',
+      canRemove: !state.remote,
       roles: lobbyRoles(),
       rulesHtml: rulesHtml()
     };
@@ -1822,11 +1841,15 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
 
   function mountSharedRoster() {
     var el = document.getElementById('openscr-roster');
-    if (!el || !window.OpenScrRoster || !state || state.screen !== 'lobby' || state.remote || shell !== 'index') return;
+    if (!el || !window.OpenScrRoster || !state || state.screen !== 'lobby' || shell !== 'index') return;
     window.OpenScrRoster.attach(el, {
       onQuery: function (value) { draft.query = value; },
       onPick: function (id) { takePlayer(id); pushSharedRoster(); },
-      onRemove: function (id) { act({ type: 'remove-name', id: Number(id) }); pushSharedRoster(); },
+      onRemove: function (id) {
+        if (state.remote || isGuest()) return;
+        act({ type: 'remove-name', id: Number(id) });
+        pushSharedRoster();
+      },
       onCreate: function (draftPerson) {
         draft.query = draftPerson.name || '';
         draft.last = draftPerson.tag || '';
@@ -1870,6 +1893,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     // fokussierte Feld entfernen und die Tastatur sofort wieder schließen.
     if (typingField()) {
       renderQueued = true;
+      if (state && state.screen === 'lobby') pushSharedRoster();
       return;
     }
     renderQueued = false;
@@ -1947,10 +1971,42 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     }, 0);
   });
 
+  var namePick = null;
+  document.addEventListener('pointerdown', function (event) {
+    var button = event.target && event.target.closest && event.target.closest('#openscr-roster [data-act="pick"]');
+    if (!button || button.dataset.seated === '1') { namePick = null; return; }
+    event.preventDefault();
+    event.stopPropagation();
+    namePick = { id: button.dataset.id, x: event.clientX, y: event.clientY };
+  }, true);
+  document.addEventListener('pointerup', function (event) {
+    var pick = namePick;
+    namePick = null;
+    if (!pick) return;
+    var dx = event.clientX - pick.x;
+    var dy = event.clientY - pick.y;
+    if (dx * dx + dy * dy > 256) return;
+    takePlayer(pick.id);
+  }, true);
+
+  document.addEventListener('click', function (event) {
+    var button = event.target && event.target.closest && event.target.closest('button');
+    if (!button || button.type !== 'submit') return;
+    var form = button.form;
+    if (!form || form.getAttribute('data-act') !== 'create') return;
+    event.preventDefault();
+    event.stopPropagation();
+    var name = form.querySelector('#orl-first');
+    var tag = form.querySelector('#orl-tag');
+    draft.query = name ? name.value : '';
+    draft.last = tag ? tag.value : '';
+    submitName();
+  }, true);
+
   app.addEventListener('click', function (event) {
     if (rendering) return;
     var el = event.target.closest('[data-act]');
-    if (!el || el.disabled) return;
+    if (!el || el.disabled || el.tagName === 'FORM') return;
     var type = el.getAttribute('data-act');
     if (type === 'stats') { statsMode = 'list'; statsRole = ''; statsSort = 'wins'; statsDir = 'desc'; render(); return; }
     if (type === 'stats-role') { statsRole = el.getAttribute('data-role') || ''; render(); return; }
@@ -2258,6 +2314,31 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
         apply: function (game, action) { return W.send(game, action); },
         getState: function () { return state; },
         setState: function (next) { state = next; },
+        createPlayer: function (info, done) {
+          var first = String((info && info.first) || '').trim().slice(0, 16);
+          var last = String((info && info.last) || '').trim().slice(0, 5);
+          var bridge = bridgePlayers();
+          if (bridge) {
+            bridge.add({ name: first, tag: last }).then(function (created) {
+              var player = asRiot(created);
+              roster.players.push(player);
+              done({ pid: player.id, first: player.first, last: player.last, tag: player.tag, name: player.first + ' #' + player.tag });
+            }, function (error) { done(null, error); });
+            return;
+          }
+          try {
+            var player = P.registerPlayer(roster, first, last, Date.now(), Math.random);
+            done({ pid: player.id, first: player.first, last: player.last, name: player.first });
+          } catch (error) {
+            done(null, error);
+          }
+        },
+        takeLibrary: function (lib) {
+          if (!lib) return;
+          if (lib.roster) roster = loadRoster(lib.roster);
+          if (lib.scores && typeof lib.scores === 'object') scores = lib.scores;
+          if (lib.history) history = loadHistory(lib.history);
+        },
         after: function () { ensureGrid(); },
         changed: onNet
       });
