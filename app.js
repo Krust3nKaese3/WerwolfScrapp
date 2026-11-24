@@ -159,6 +159,23 @@
     state.error = '';
   }
 
+  function bridgePlayers() {
+    var api = window.OpenScrBridge && window.OpenScrBridge.players;
+    return api && typeof api.list === 'function' ? api : null;
+  }
+
+  function asRiot(player) {
+    var name = String((player && (player.name || player.first)) || '').trim();
+    var tag = String((player && player.tag) || '').trim();
+    return { id: String(player && player.id || ''), name: name, tag: tag, first: name, last: tag, created: 0 };
+  }
+
+  function riotLabel(player) {
+    if (!player || !player.tag) return '';
+    if (player.tag && player.first) return player.first + '#' + player.tag;
+    return '';
+  }
+
   function isGuest() {
     return !!((window.WerwolfNet && window.WerwolfNet.browserGuest && window.WerwolfNet.browserGuest()) ||
       (window.WerwolfNet && window.WerwolfNet.role && window.WerwolfNet.role() === 'guest'));
@@ -187,6 +204,7 @@
       }).then(function () {
         return writeKey(SETUP_KEY, setup);
       }).then(function () {
+        if (bridgePlayers()) return null;
         return writeKey(PLAYERS_KEY, roster);
       }).then(function () {
         return writeKey(HISTORY_KEY, history);
@@ -234,12 +252,17 @@
   }
 
   function refreshNames() {
+    (state.players || []).forEach(function (player) {
+      if (player.tag && player.first) player.name = player.first + '#' + player.tag;
+    });
     var rows = [];
     (state.players || []).forEach(function (player) {
+      if (player.tag) return;
       if (player.pid && player.first) rows.push({ id: player.pid, first: player.first, last: player.last || '' });
     });
     var labels = P.displayNames(rows);
     (state.players || []).forEach(function (player) {
+      if (player.tag) return;
       if (player.pid && labels[player.pid]) player.name = labels[player.pid];
     });
   }
@@ -254,6 +277,7 @@
         if (known) {
           if (!seat.first) seat.first = known.first;
           if (!seat.last) seat.last = known.last;
+          if (known.tag) seat.tag = known.tag;
         }
         return;
       }
@@ -525,11 +549,11 @@
       errorHtml() +
       mpEntry() +
       (mpError ? '<div class="banner error">' + esc(mpError) + '</div>' : '') +
-      '<form id="name-form" class="stack"><input id="name-input" type="text" maxlength="32" autocomplete="off" autocapitalize="words" placeholder="Vorname oder Suche" aria-label="Vorname oder Suche" value="' + esc(draft.query) + '">' +
+      '<form id="name-form" class="stack"><input id="name-input" type="text" maxlength="16" autocomplete="off" autocapitalize="words" placeholder="Anzeigename oder Suche" aria-label="Anzeigename oder Suche" value="' + esc(draft.query) + '">' +
       '<div id="name-suggest" class="suggest">' + suggestHtml(draft.query) + '</div>' +
-      '<input id="last-input" type="text" maxlength="32" autocomplete="off" autocapitalize="words" placeholder="Nachname" aria-label="Nachname" value="' + esc(draft.last) + '">' +
+      '<input id="last-input" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="Tag" aria-label="Tag" value="' + esc(draft.last) + '">' +
       '<button class="btn" type="submit">Name hinzufügen</button></form>' +
-      '<p class="hint">Beim ersten Mal Vor- und Nachname. Angezeigt wird der Vorname. Gleiche Vornamen bekommen den Anfangsbuchstaben.</p>' +
+      '<p class="hint">Anzeigename und Tag, zum Beispiel Mina Wolf und 7K2. In der Runde steht Mina Wolf#7K2.</p>' +
       names +
       '<button type="button" class="btn" data-act="to-setup"' + (state.players.length < 4 ? ' disabled' : '') + '>Weiter zu den Rollen</button>' +
       '<p class="hint">Mindestens 4 Mitspieler. Aktuell ' + state.players.length + '.</p>' +
@@ -1243,8 +1267,9 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var exclude = [];
     (state.players || []).forEach(function (player) { if (player.pid) exclude.push(player.pid); });
     return P.search(roster.players, query, exclude).slice(0, 6).map(function (player) {
+      var label = player.tag ? (player.first + '#' + player.tag) : (player.first + ' ' + player.last);
       return '<button type="button" class="choice" data-act="use-player" data-pid="' + esc(player.id) + '">' +
-        esc(player.first + ' ' + player.last) + '</button>';
+        esc(label) + '</button>';
     }).join('');
   }
 
@@ -1337,14 +1362,15 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var rows = people.map(function (player) {
       var stats = S.playerStats(history, player.id);
       var meta = stats.games ? stats.games + ' Spiele · ' + stats.wins + ' Siege' : 'Noch kein Spiel';
+      var label = player.tag ? (player.first + '#' + player.tag) : (player.first + ' ' + player.last);
       var initial = (player.first || '?').charAt(0).toUpperCase();
       return '<button type="button" class="choice person-row" data-act="open-player" data-pid="' + esc(player.id) + '">' +
         '<span class="avatar" aria-hidden="true">' + esc(initial) + '</span><span><span class="who">' +
-        esc(player.first + ' ' + player.last) + '</span><span class="meta">' + esc(meta) + '</span></span></button>';
+        esc(label) + '</span><span class="meta">' + esc(meta) + '</span></span></button>';
     }).join('');
     return header('Statistik', 'Spieler') +
       '<div class="stack"><p class="lead">Tippe einen Namen. Alle Zahlen kommen aus den beendeten Spielen.</p>' +
-      (rows || '<p class="hint">Noch niemand gespeichert. Ein neuer Name landet hier, sobald Vor- und Nachname erfasst sind.</p>') +
+      (rows || '<p class="hint">Noch niemand gespeichert. Namen legt OpenScr unter Anzeigename und Tag an.</p>') +
       '<button type="button" class="btn secondary" data-act="stats-back">Zurück</button></div>';
   }
 
@@ -1354,7 +1380,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     if (!player) return;
     draft.query = '';
     draft.last = '';
-    act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, name: player.first });
+    act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, tag: player.tag || '', name: player.tag ? (player.first + '#' + player.tag) : player.first });
   }
 
   function submitName() {
@@ -1362,16 +1388,30 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var lastEl = document.getElementById('last-input');
     if (firstEl) draft.query = firstEl.value;
     if (lastEl) draft.last = lastEl.value;
-    var first = String(draft.query || '').trim().slice(0, 32);
-    var last = String(draft.last || '').trim().slice(0, 32);
+    var first = String(draft.query || '').trim().slice(0, 16);
+    var last = String(draft.last || '').trim().slice(0, 5);
     if (!first) {
-      state.error = 'Bitte einen Vornamen eingeben.';
+      state.error = 'Bitte einen Anzeigenamen eingeben.';
       render();
       return;
     }
     if (!last) {
-      state.error = 'Bitte auch den Nachnamen eingeben.';
+      state.error = 'Bitte auch den Tag eingeben.';
       render();
+      return;
+    }
+    var bridge = bridgePlayers();
+    if (bridge) {
+      bridge.add({ name: first, tag: last }).then(function (created) {
+        var player = asRiot(created);
+        roster.players.push(player);
+        draft.query = '';
+        draft.last = '';
+        act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, tag: player.tag, name: player.first + '#' + player.tag });
+      }, function (error) {
+        state.error = (error && error.message) || 'Der Name konnte nicht gespeichert werden.';
+        render();
+      });
       return;
     }
     var player;
@@ -1685,6 +1725,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
   }
 
   async function boot() {
+    console.log('[werwolf] boot', bridgePlayers() ? 'mit gemeinsamer Namensliste' : 'ohne Namensbrücke');
     var guestBoot = !!(window.WerwolfNet && window.WerwolfNet.browserGuest && window.WerwolfNet.browserGuest());
     if (window.WerwolfNet && window.WerwolfNet.available && window.WerwolfNet.available()) {
       window.WerwolfNet.hold(true);
@@ -1712,6 +1753,17 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     }
     scores = W.grantPoints(await readKey(SCORE_KEY), []);
     roster = loadRoster(await readKey(PLAYERS_KEY));
+    var shared = bridgePlayers();
+    if (shared) {
+      try {
+        console.log('[werwolf] players.list');
+        var listed = await shared.list();
+        console.log('[werwolf] players.list fertig', listed && listed.length);
+        roster = { v: 1, players: (listed || []).map(asRiot).filter(function (player) { return player.id && player.name && player.tag; }) };
+      } catch (error) {
+        console.error('[werwolf] players.list fehlgeschlagen', error && error.message ? error.message : error);
+      }
+    }
     history = loadHistory(await readKey(HISTORY_KEY));
     savedSetup = await readKey(SETUP_KEY);
     var savedGame = await readKey(GAME_KEY);

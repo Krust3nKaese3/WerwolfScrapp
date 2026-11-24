@@ -8,6 +8,12 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <script>
+    window.addEventListener('error', function (event) {
+      console.error('[werwolf]', event.message, event.filename, event.lineno, event.error && event.error.stack);
+    });
+    console.log('[werwolf] Seite geladen');
+  </script>
   <button type="button" id="gear-btn" class="bug-launcher gear-launcher" aria-label="Einstellungen">
     <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path fill="none" stroke="currentColor" stroke-width="2" d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z"/>

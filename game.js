@@ -184,18 +184,24 @@
     if (player.pid) seat.pid = player.pid;
     if (player.first) seat.first = player.first;
     if (player.last) seat.last = player.last;
+    if (player.tag) seat.tag = player.tag;
     return seat;
   }
 
   function refreshSeatNames(state) {
     if (!root.WerwolfPlayers || !state || !state.players) return;
+    state.players.forEach(function (player) {
+      if (player.tag && player.first) player.name = player.first + '#' + player.tag;
+    });
     var rows = [];
     state.players.forEach(function (player) {
+      if (player.tag) return;
       if (player.pid && player.first) rows.push({ id: player.pid, first: player.first, last: player.last || '' });
     });
     if (!rows.length) return;
     var labels = root.WerwolfPlayers.displayNames(rows);
     state.players.forEach(function (player) {
+      if (player.tag) return;
       if (player.pid && labels[player.pid]) player.name = labels[player.pid];
     });
   }
@@ -330,6 +336,7 @@
     if (pid) seat.pid = pid;
     if (first) seat.first = first;
     if (last) seat.last = last;
+    if (info.tag) seat.tag = String(info.tag).trim();
     state.players.push(seat);
     refreshSeatNames(state);
     if (nameTaken(state, seat.id)) {
