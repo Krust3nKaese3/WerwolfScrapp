@@ -290,6 +290,15 @@
     if (rename) refreshNames();
   }
 
+  var shell = 'index';
+  var qrPanel = '';
+  var qrImage = '';
+  var qrNote = '';
+  var qrShare = '';
+  var hostLink = 'wlan';
+  var hotSsid = '';
+  var hotPass = '';
+  var SCRAP_URL = 'https://github.com/Krust3nKaese3/WerwolfScrapp';
   var rendering = false;
   var quietTimer = null;
 
@@ -371,7 +380,7 @@
   }
 
   function header(eyebrow, title, home) {
-    return '<header><div><p class="eyebrow">' + esc(eyebrow) + '</p><h1>' + esc(title) + '</h1></div>' +
+    return '<header><div>' + (eyebrow ? '<p class="eyebrow">' + esc(eyebrow) + '</p>' : '') + '<h1>' + esc(title) + '</h1></div>' +
       (home ? '<button type="button" class="icon-btn" data-act="home" aria-label="Home">' + HOME + '</button>' : '') +
       '</header>';
   }
@@ -468,6 +477,7 @@
   function mpEntry() {
     if (!window.WerwolfNet || !window.WerwolfNet.available || !window.WerwolfNet.available()) return '';
     if (isGuest()) return '';
+    if (inOpenScr()) return '';
     if (window.WerwolfNet.roomInfo && window.WerwolfNet.roomInfo()) return '';
     return '<button type="button" class="btn secondary" data-act="mp-host">Mehrspieler</button>' +
       '<button type="button" class="btn secondary" data-act="mp-join">Beitreten</button>' +
@@ -536,16 +546,13 @@
         '<div class="stack"><p class="lead">Das Spiel liegt auf dem Host-Handy. Hier ist kein eigener Spielstand, keine Spielerliste und keine Statistik.</p>' +
         names + '</div>';
     }
-    var telling = !!state.selfTell;
-    return header('Ein Handy für die Runde', 'Werwolf') +
+    if (window.OpenScrRoster && !remote) {
+      return header('', 'Werwolf') +
+        '<div class="stack">' + errorHtml() + (mpError ? '<div class="banner error">' + esc(mpError) + '</div>' : '') +
+        '<div id="openscr-roster"></div></div>';
+    }
+    return header('', 'Werwolf') +
       '<div class="stack">' +
-      '<p class="lead">Namen nacheinander eingeben, im Uhrzeigersinn. Diese Reihenfolge ist die Sitzordnung.</p>' +
-      '<button type="button" class="btn secondary" data-act="toggle-self-tell" aria-pressed="' + (telling ? 'true' : 'false') + '">Wir erzählen selber: ' + (telling ? 'an' : 'aus') + '</button>' +
-      '<p class="hint">' + (telling
-        ? 'An: Jede Person sieht zuerst nur die eigene Rolle. Danach behält der Erzähler das Handy und tippt die Aktionen ein. Der Erzähler steht nicht in der Liste und hat keine Rolle.'
-        : 'Aus: Das Handy geht die ganze Partie herum, so wie bisher.') + '</p>' +
-      (bridgeStorage() ? '<p class="hint">Namen und ein laufendes Spiel bleiben in OpenScr gespeichert, auch nach dem Schließen.</p>'
-        : '<p class="hint">Im Browser bleibt der Stand in diesem Tab. In OpenScr übersteht er das Schließen der App.</p>') +
       errorHtml() +
       mpEntry() +
       (mpError ? '<div class="banner error">' + esc(mpError) + '</div>' : '') +
@@ -553,7 +560,6 @@
       '<div id="name-suggest" class="suggest">' + suggestHtml(draft.query) + '</div>' +
       '<input id="last-input" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="Tag" aria-label="Tag" value="' + esc(draft.last) + '">' +
       '<button class="btn" type="submit">Name hinzufügen</button></form>' +
-      '<p class="hint">Anzeigename und Tag, zum Beispiel Mina Wolf und 7K2. In der Runde steht Mina Wolf#7K2.</p>' +
       names +
       '<button type="button" class="btn" data-act="to-setup"' + (state.players.length < 4 ? ' disabled' : '') + '>Weiter zu den Rollen</button>' +
       '<p class="hint">Mindestens 4 Mitspieler. Aktuell ' + state.players.length + '.</p>' +
@@ -1408,6 +1414,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
         draft.query = '';
         draft.last = '';
         act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, tag: player.tag, name: player.first + '#' + player.tag });
+        pushSharedRoster();
       }, function (error) {
         state.error = (error && error.message) || 'Der Name konnte nicht gespeichert werden.';
         render();
@@ -1425,6 +1432,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     draft.query = '';
     draft.last = '';
     act({ type: 'add-player', pid: player.id, first: player.first, last: player.last, name: player.first });
+    pushSharedRoster();
   }
 
   function typingField() {
@@ -1433,6 +1441,171 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     if (el.isContentEditable) return true;
     var tag = el.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  }
+
+  function mpApi() {
+    var bridge = window.OpenScrBridge || window.EveryAppBridge;
+    return bridge && bridge.multiplayer ? bridge.multiplayer : null;
+  }
+
+  function inOpenScr() {
+    return !!(window.ReactNativeWebView && window.ReactNativeWebView.postMessage);
+  }
+
+  function postShell(page) {
+    shell = page;
+    if (!inOpenScr()) return;
+    window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'shell-page', page: page }));
+  }
+
+  function wifiPayload(ssid, password) {
+    var escWifi = function (value) { return String(value || '').replace(/([\\;,:"])/g, '\\$1'); };
+    return 'WIFI:T:WPA;S:' + escWifi(ssid) + ';P:' + escWifi(password) + ';;';
+  }
+
+  function qrButton(action, label, extra) {
+    return '<div class="qr-panel' + (extra ? ' is-open' : '') + '">' +
+      '<button type="button" class="btn secondary qr-btn" data-act="' + action + '"><span>' + label + '</span></button>' +
+      (extra || '') + '</div>';
+  }
+
+  function renderShellQr() {
+    var requests = '';
+    var room = window.WerwolfNet && window.WerwolfNet.roomInfo && window.WerwolfNet.roomInfo();
+    if (room && room.role === 'host' && room.requests) {
+      requests = room.requests.map(function (request) {
+        return '<p class="hint">' + esc(request.name) + ' möchte beitreten.</p>' +
+          '<div class="row"><button type="button" class="btn" data-act="mp-approve" data-id="' + esc(request.id) + '">Zulassen</button>' +
+          '<button type="button" class="btn secondary" data-act="mp-deny" data-id="' + esc(request.id) + '">Ablehnen</button></div>';
+      }).join('');
+    }
+    var hostExtra = qrPanel !== 'host' ? '' : (
+      '<div class="row">' +
+      '<button type="button" class="btn' + (hostLink === 'wlan' ? '' : ' ghost') + '" data-act="qr-wlan">WLAN</button>' +
+      '<button type="button" class="btn' + (hostLink === 'hotspot' ? '' : ' ghost') + '" data-act="qr-hotspot">Hotspot</button>' +
+      '</div>' +
+      (hostLink === 'hotspot'
+        ? '<form class="stack" data-act="qr-hotspot-show"><input id="hotSsid" type="text" maxlength="64" placeholder="Hotspot-Name" value="' + esc(hotSsid) + '" aria-label="Hotspot-Name">' +
+          '<input id="hotPass" type="text" maxlength="64" placeholder="Hotspot-Passwort" value="' + esc(hotPass) + '" aria-label="Hotspot-Passwort">' +
+          '<button class="btn secondary" type="submit">QR-Code zeigen</button></form>'
+        : '') +
+      (qrNote ? '<p class="hint">' + esc(qrNote) + '</p>' : '') +
+      (qrImage ? '<img class="qr-image" alt="QR-Code" src="' + esc(qrImage) + '">' : '') +
+      (qrShare ? '<div class="row"><button type="button" class="btn ghost" data-act="qr-copy">Link kopieren</button><button type="button" class="btn ghost" data-act="qr-share">Teilen</button></div>' : '') +
+      '<button type="button" class="btn bad" data-act="mp-leave">Hosting beenden</button>'
+    );
+    var downloadExtra = qrPanel !== 'download' ? '' : (
+      (qrImage ? '<img class="qr-image" alt="QR-Code zum Herunterladen" src="' + esc(qrImage) + '">' : '') +
+      (qrNote ? '<p class="hint">' + esc(qrNote) + '</p>' : '') +
+      (qrShare ? '<div class="row"><button type="button" class="btn ghost" data-act="qr-copy">Link kopieren</button><button type="button" class="btn ghost" data-act="qr-share">Teilen</button></div>' : '')
+    );
+    return header('Werwolf', 'Einladung') + '<div class="stack">' +
+      qrButton('qr-join', 'Code scannen') +
+      qrButton('qr-host', 'Host Multiplayer', hostExtra) +
+      qrButton('qr-download', 'Download Scrap', downloadExtra) +
+      requests +
+      '</div>';
+  }
+
+  function renderShellOptions() {
+    var telling = !!state.selfTell;
+    var wolf = !!(state && state.showWolfAction);
+    var quick = !state || state.quickAmor !== false;
+    return header('Werwolf', 'Optionen') + '<div class="stack">' +
+      '<button type="button" class="btn secondary" data-act="toggle-self-tell" aria-pressed="' + (telling ? 'true' : 'false') + '">Wir erzählen selber: ' + (telling ? 'an' : 'aus') + '</button>' +
+      '<button type="button" class="btn secondary" data-act="toggle-wolf-action" aria-pressed="' + (wolf ? 'true' : 'false') + '">Werwolf-Aktion anzeigen: ' + (wolf ? 'an' : 'aus') + '</button>' +
+      '<button type="button" class="btn secondary" data-act="toggle-quick-amor" aria-pressed="' + (quick ? 'true' : 'false') + '">Quick Amor: ' + (quick ? 'an' : 'aus') + '</button>' +
+      '<p class="hint">Gilt für die nächste Eingabe. Quick Amor lässt sich umlegen, solange Amor noch nicht verbunden hat.</p>' +
+      rulesHtml() +
+      '<button type="button" class="btn secondary" data-act="bug-open">Fehler melden</button>' +
+      '</div>';
+  }
+
+  function paintHostQr() {
+    qrPanel = 'host';
+    var net = window.WerwolfNet;
+    var running = net && net.roomInfo && net.roomInfo() && net.roomInfo().role === 'host';
+    var start = running ? Promise.resolve() : net.host();
+    start.then(function () {
+      var mp = mpApi();
+      if (!mp || typeof mp.codes !== 'function') {
+        qrNote = 'Raum ist offen. Den Code zeigt OpenScr.';
+        qrImage = '';
+        render();
+        return null;
+      }
+      return mp.codes();
+    }).then(function (codes) {
+      if (!codes && qrNote) return null;
+      var url = codes && (codes.gameUrl || codes.qrPayload) || '';
+      qrShare = url;
+      var mp = mpApi();
+      var text = url;
+      if (hostLink === 'hotspot') {
+        text = hotSsid ? wifiPayload(hotSsid, hotPass) : '';
+        qrNote = hotSsid ? 'Hotspot scannen, danach den Spiel-Link öffnen.' : 'Name und Passwort eintragen.';
+      } else {
+        qrNote = url ? 'Gleiches WLAN. Der Code öffnet das Spiel im Browser.' : 'Der Spiel-Link wird vorbereitet.';
+      }
+      if (!text || !mp || typeof mp.qrDataUrl !== 'function') {
+        qrImage = '';
+        render();
+        return null;
+      }
+      return mp.qrDataUrl(text);
+    }).then(function (image) {
+      if (typeof image === 'string') qrImage = image;
+      render();
+    }, function (error) {
+      qrNote = (error && error.message) || 'Hosting nicht verfügbar.';
+      qrImage = '';
+      render();
+    });
+  }
+
+  function rosterLabel(player) {
+    if (!player) return '';
+    if (player.tag) return (player.name || player.first || '') + (String(player.name || '').indexOf('#') >= 0 ? '' : '#' + player.tag);
+    return player.name || player.first || '';
+  }
+
+  function sharedRosterModel() {
+    return {
+      query: draft.query || '',
+      directory: (roster.players || []).map(function (player) {
+        return { id: String(player.id), label: player.tag ? (player.first + '#' + player.tag) : ((player.first + ' ' + player.last).trim() || player.first) };
+      }),
+      seated: (state.players || []).map(function (player) {
+        return { id: String(player.id), pid: String(player.pid || ''), label: rosterLabel(player) };
+      }),
+      startLabel: 'Weiter zu den Rollen',
+      startDisabled: (state.players || []).length < 4,
+      statsLabel: 'Statistik',
+      rulesHtml: rulesHtml()
+    };
+  }
+
+  function pushSharedRoster() {
+    if (!window.OpenScrRoster || !document.getElementById('openscr-roster')) return;
+    window.OpenScrRoster.setModel(sharedRosterModel());
+  }
+
+  function mountSharedRoster() {
+    var el = document.getElementById('openscr-roster');
+    if (!el || !window.OpenScrRoster || !state || state.screen !== 'lobby' || state.remote || shell !== 'index') return;
+    window.OpenScrRoster.attach(el, {
+      onQuery: function (value) { draft.query = value; },
+      onPick: function (id) { takePlayer(id); pushSharedRoster(); },
+      onRemove: function (id) { act({ type: 'remove-name', id: Number(id) }); pushSharedRoster(); },
+      onCreate: function (draftPerson) {
+        draft.query = draftPerson.name || '';
+        draft.last = draftPerson.tag || '';
+        submitName();
+      },
+      onStart: function () { act({ type: 'to-setup' }); },
+      onStats: function () { statsMode = 'list'; render(); }
+    });
+    pushSharedRoster();
   }
 
   function render() {
@@ -1454,7 +1627,9 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       if (!state || state.screen !== 'lobby') statsMode = null;
       var html = '';
       var away = window.WerwolfNet && window.WerwolfNet.hostAway ? window.WerwolfNet.hostAway() : '';
-      if (uiJoin && !isGuest()) html = renderJoin();
+      if (shell === 'qr') html = renderShellQr();
+      else if (shell === 'options') html = renderShellOptions();
+      else if (uiJoin && !isGuest()) html = renderJoin();
       else if (statsMode && state.screen === 'lobby') html = renderStats();
       else if (state.screen === 'wait') html = renderWait();
       else if (state.screen === 'lobby') html = renderLobby();
@@ -1467,9 +1642,10 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       else if (state.screen === 'duel') html = renderDuel();
       else if (state.screen === 'end') html = renderEnd();
       else html = renderLobby();
-      if (away && state.screen !== 'wait') html = '<div class="banner info">' + esc(away) + '</div>' + html;
-      if (!uiJoin) html = mpBar() + html;
+      if (away && state.screen !== 'wait' && shell === 'index') html = '<div class="banner info">' + esc(away) + '</div>' + html;
+      if (!uiJoin && !inOpenScr()) html = mpBar() + html;
       app.innerHTML = html;
+      mountSharedRoster();
       armQuiet(!!(state && state.selfTell && state.screen === 'night' && state.step === 'call' && state.narratorQuiet));
       syncSettings();
     } finally {
@@ -1561,6 +1737,43 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       act({ type: 'set-heals', value: heals });
       return;
     }
+    if (type === 'qr-host') { paintHostQr(); return; }
+    if (type === 'qr-wlan') { hostLink = 'wlan'; paintHostQr(); return; }
+    if (type === 'qr-hotspot') { hostLink = 'hotspot'; qrImage = ''; qrNote = 'Name und Passwort eintragen.'; render(); return; }
+    if (type === 'qr-download') {
+      qrPanel = 'download';
+      qrShare = SCRAP_URL;
+      qrNote = 'In OpenScr scannen, um Werwolf zu laden.';
+      var mp = mpApi();
+      if (mp && mp.qrDataUrl) mp.qrDataUrl(SCRAP_URL).then(function (image) { qrImage = image || ''; render(); });
+      else render();
+      return;
+    }
+    if (type === 'qr-join') {
+      shell = 'index';
+      postShell('index');
+      uiJoin = true;
+      if (window.WerwolfNet && window.WerwolfNet.discover) window.WerwolfNet.discover();
+      render();
+      return;
+    }
+    if (type === 'qr-copy') {
+      var clip = (window.OpenScrBridge || window.EveryAppBridge);
+      var write = clip && clip.clipboard && clip.clipboard.setString;
+      if (write) write(qrShare);
+      else if (navigator.clipboard) navigator.clipboard.writeText(qrShare);
+      return;
+    }
+    if (type === 'qr-share') {
+      if (navigator.share) navigator.share({ title: 'Werwolf', text: qrShare, url: qrShare }).catch(function () {});
+      else if (navigator.clipboard) navigator.clipboard.writeText(qrShare);
+      return;
+    }
+    if (type === 'bug-open') {
+      var bugPanel = document.getElementById('bug-panel');
+      if (bugPanel) bugPanel.hidden = false;
+      return;
+    }
     if (type === 'mp-host') {
       if (isGuest()) return;
       mpError = '';
@@ -1633,7 +1846,17 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
 
   app.addEventListener('submit', function (event) {
     var form = event.target;
-    if (!form || form.id !== 'name-form') return;
+    if (!form) return;
+    if (form.getAttribute('data-act') === 'qr-hotspot-show') {
+      event.preventDefault();
+      var ssid = document.getElementById('hotSsid');
+      var pass = document.getElementById('hotPass');
+      hotSsid = ssid ? ssid.value : '';
+      hotPass = pass ? pass.value : '';
+      paintHostQr();
+      return;
+    }
+    if (form.id !== 'name-form') return;
     event.preventDefault();
     submitName();
   });
@@ -1723,6 +1946,13 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     }
     render();
   }
+
+  window.addEventListener('openscr-shell', function (event) {
+    var page = event.detail === 'qr' || event.detail === 'options' ? event.detail : 'index';
+    if (page === shell) return;
+    postShell(page);
+    render();
+  });
 
   async function boot() {
     console.log('[werwolf] boot', bridgePlayers() ? 'mit gemeinsamer Namensliste' : 'ohne Namensbrücke');
