@@ -393,7 +393,7 @@
     state.wolfMax = config.wolfMax;
     state.confirmUndoDeal = false;
     state.error = '';
-    setScreen(state, 'setup');
+    setScreen(state, 'lobby');
   }
 
   function beginSetup(state) {
@@ -1629,18 +1629,19 @@
     state.revived.forEach(function (row) {
       lines.push(row.name + ' ist wieder im Dorf.');
     });
+    var voteFirst = !!(state.counts && state.counts.russe);
     state.announce = {
-      title: 'Morgen. Tag ' + state.day,
+      title: '🌅 Tag ' + state.day,
       lines: lines,
-      button: win ? 'Ergebnis' : 'Diskussion',
-      then: win ? 'end' : 'discuss'
+      button: win ? 'Ergebnis' : (voteFirst ? 'Abstimmung' : 'Diskussion'),
+      then: win ? 'end' : (voteFirst ? 'vote' : 'discuss')
     };
     setScreen(state, 'announce');
   }
 
   function finishVote(state) {
     var result = resolveBallot(state);
-    var lines = ['Stimme des Bürgermeisters zählt 1,5.'].concat(tallyLines(state, result.scores));
+    var lines = tallyLines(state, result.scores);
     if (result.type === 'tie') {
       lines.push('Gleichstand. Niemand stirbt.');
       state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'night' };
@@ -1722,11 +1723,12 @@
     var win = checkWin(state);
     var lines = state.obit.map(function (row) { return deathLine(state, row); });
     if (!lines.length) lines.push(state.showWolfAction ? 'Das Duell endet ohne Toten.' : 'Niemand ist gestorben.');
+    var backToVote = !!(state.counts && state.counts.russe);
     state.announce = {
       title: state.showWolfAction ? 'Duell vorbei' : 'Am Tag',
       lines: lines,
-      button: win ? 'Ergebnis' : 'Zurück zur Diskussion',
-      then: win ? 'end' : 'discuss'
+      button: win ? 'Ergebnis' : (backToVote ? 'Zurück zur Abstimmung' : 'Zurück zur Diskussion'),
+      then: win ? 'end' : (backToVote ? 'vote-keep' : 'discuss')
     };
     state.duel = null;
     setScreen(state, 'announce');
@@ -2301,6 +2303,15 @@
       return;
     }
     if (action.type === 'deal') {
+      if (!state.counts) {
+        var fresh = defaultConfig(state.players.length);
+        state.counts = fresh.counts;
+        if (state.nachUses == null) state.nachUses = fresh.nachUses;
+        if (state.healPotions == null) state.healPotions = fresh.healPotions;
+        if (state.wolfMin == null) state.wolfMin = fresh.wolfMin;
+        if (state.wolfMax == null) state.wolfMax = fresh.wolfMax;
+        if (state.rolePool == null) state.rolePool = fresh.rolePool;
+      }
       var setupCounts = state.counts;
       if (state.rolePool) {
         setupCounts = {};
@@ -2493,20 +2504,36 @@
     }
   }
 
-  function discussSend(state, action) {
-    if (action.type === 'to-vote') {
-      state.order = livingIds(state);
-      state.cursor = 0;
+  function openVote(state, reset) {
+    if (reset || !state.votes || state.voteDay !== state.day) {
       state.votes = {};
       state.voteDone = [];
-      state.activeId = null;
-      state.prompts = [];
-      state.promptIndex = 0;
-      state.selection = [];
-      state.resolution = null;
-      state.step = 'list';
-      state.error = '';
-      setScreen(state, 'vote');
+      state.voteDay = state.day;
+    }
+    state.order = livingIds(state);
+    state.cursor = 0;
+    state.activeId = null;
+    state.actorId = null;
+    state.prompts = [];
+    state.promptIndex = 0;
+    state.selection = [];
+    state.resolution = null;
+    state.step = 'list';
+    state.error = '';
+    setScreen(state, 'vote');
+  }
+
+  function backToDay(state) {
+    if (state.counts && state.counts.russe) {
+      openVote(state, false);
+      return;
+    }
+    setScreen(state, 'discuss');
+  }
+
+  function discussSend(state, action) {
+    if (action.type === 'to-vote') {
+      openVote(state, true);
       note(state, 'Abstimmung');
       return;
     }
@@ -2526,6 +2553,8 @@
     if (then === 'end') setScreen(state, 'end');
     else if (then === 'night') beginNight(state);
     else if (then === 'apply-vote') applyCondemn(state);
+    else if (then === 'vote') { if (!openForcedDuel(state)) openVote(state, true); }
+    else if (then === 'vote-keep') { if (!openForcedDuel(state)) openVote(state, false); }
     else if (!openForcedDuel(state)) setScreen(state, 'discuss');
   }
 
@@ -2549,6 +2578,19 @@
   }
 
   function turnSend(state, action) {
+    if (state.screen === 'vote' && action.type === 'to-duel') {
+      if (!(state.counts && state.counts.russe)) return;
+      state.duel = { stage: 'who' };
+      state.selection = [];
+      state.activeId = null;
+      state.actorId = null;
+      state.prompts = [];
+      state.promptIndex = 0;
+      state.step = 'list';
+      state.error = '';
+      setScreen(state, 'duel');
+      return;
+    }
     if (state.selfTell && state.screen === 'night') return narratorNightSend(state, action);
     if (state.screen === 'night' && state.step === 'list') {
       if (action.type !== 'night-pick') return;
@@ -2725,7 +2767,7 @@
       state.duel = null;
       state.selection = [];
       state.error = '';
-      setScreen(state, 'discuss');
+      backToDay(state);
       return;
     }
     if (duel.stage === 'claim') {
@@ -2776,7 +2818,7 @@
     if (duel.stage === 'noop') {
       if (action.type === 'ack') {
         state.duel = null;
-        setScreen(state, 'discuss');
+        backToDay(state);
       }
       return;
     }
@@ -2787,7 +2829,7 @@
           return;
         }
         state.duel = null;
-        setScreen(state, 'discuss');
+        backToDay(state);
         return;
       }
       if (action.type === 'select') {

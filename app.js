@@ -16,10 +16,14 @@
   var history = S.emptyHistory();
   var draft = { query: '', last: '' };
   var statsMode = null;
+  var statsRole = '';
+  var statsSort = 'wins';
+  var statsDir = 'desc';
   var explainPool = false;
   var explainSeer = false;
   var explainWolf = false;
   var explainAmor = false;
+  var explainTell = false;
   var confirmWolfId = 0;
   var uiJoin = false;
   var mpError = '';
@@ -118,39 +122,27 @@
   function setupActions(type) {
     return type === 'set-count' || type === 'set-nach' || type === 'set-heals' || type === 'set-wolf-min' ||
       type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-quick-amor' ||
-      type === 'toggle-pool' || type === 'suggest' ||
+      type === 'toggle-self-tell' || type === 'toggle-pool' || type === 'suggest' ||
       type === 'undo-deal' || type === 'to-setup';
   }
 
   function rememberSetup() {
-    if (!state || state.screen !== 'setup') return;
-    savedSetup = {
-      v: 1,
-      counts: state.counts,
-      nachUses: state.nachUses,
-      healPotions: state.healPotions,
-      rolePool: !!state.rolePool,
-      seerExact: !!state.seerExact,
-      showWolfAction: !!state.showWolfAction,
-      quickAmor: state.quickAmor !== false,
-      wolfMin: state.wolfMin,
-      wolfMax: state.wolfMax,
-      selfTell: !!state.selfTell
-    };
-  }
-
-  function rememberModes() {
-    if (!savedSetup || typeof savedSetup !== 'object') savedSetup = { v: 1 };
     if (!state) return;
-    savedSetup.selfTell = !!state.selfTell;
-    savedSetup.showWolfAction = !!state.showWolfAction;
-    savedSetup.quickAmor = state.quickAmor !== false;
+    if (!savedSetup || typeof savedSetup !== 'object') savedSetup = { v: 1 };
+    if (state.counts) savedSetup.counts = JSON.parse(JSON.stringify(state.counts));
+    if (state.nachUses != null) savedSetup.nachUses = state.nachUses;
+    if (state.healPotions != null) savedSetup.healPotions = state.healPotions;
     if (state.rolePool != null) savedSetup.rolePool = !!state.rolePool;
     if (state.seerExact != null) savedSetup.seerExact = !!state.seerExact;
+    savedSetup.showWolfAction = !!state.showWolfAction;
+    savedSetup.quickAmor = state.quickAmor !== false;
+    if (state.wolfMin != null) savedSetup.wolfMin = state.wolfMin;
+    if (state.wolfMax != null) savedSetup.wolfMax = state.wolfMax;
+    savedSetup.selfTell = !!state.selfTell;
   }
 
   function applySavedSetup() {
-    if (!savedSetup || !state || state.screen !== 'setup') return;
+    if (!savedSetup || !state) return;
     if (savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));
     if (savedSetup.nachUses != null) state.nachUses = savedSetup.nachUses;
     if (savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
@@ -162,6 +154,21 @@
     if (savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
     if ('selfTell' in savedSetup) state.selfTell = !!savedSetup.selfTell;
     state.error = '';
+  }
+
+  function ensureSetup() {
+    if (!state || state.remote) return;
+    if (state.screen !== 'lobby' && state.screen !== 'setup') return;
+    if (!state.counts) applySavedSetup();
+    if (!state.counts) {
+      state.counts = W.defaultCounts((state.players || []).length || 4);
+      if (state.nachUses == null) state.nachUses = 1;
+      if (state.healPotions == null) state.healPotions = 2;
+      if (state.wolfMin == null) state.wolfMin = state.counts.werwolf || 1;
+      if (state.wolfMax == null) state.wolfMax = state.wolfMin;
+      if (state.rolePool == null) state.rolePool = true;
+      rememberSetup();
+    }
   }
 
   function bridgePlayers() {
@@ -325,17 +332,17 @@
       rendering = true;
       try { window.WerwolfNet.local(action); }
       finally { rendering = false; }
+      if (action.type === 'home' || action.type === 'abort') applySavedSetup();
+      if (setupActions(action.type) || action.type === 'deal' || action.type === 'undo-deal') rememberSetup();
+      persist();
       return;
     }
     rendering = true;
     try {
       W.send(state, action);
       ensureGrid();
-      if (action.type === 'toggle-self-tell' || action.type === 'toggle-wolf-action' || action.type === 'toggle-quick-amor' || action.type === 'toggle-seer' || action.type === 'toggle-pool') rememberModes();
-      if (action.type === 'to-setup') applySavedSetup();
-      if (state.screen === 'setup' && (action.type === 'to-setup' || action.type === 'undo-deal' || setupActions(action.type))) {
-        rememberSetup();
-      }
+      if (action.type === 'home' || action.type === 'abort') applySavedSetup();
+      if (setupActions(action.type) || action.type === 'deal' || action.type === 'undo-deal') rememberSetup();
       applyScores();
       persist();
       render();
@@ -399,12 +406,6 @@
     return state.error ? '<div class="banner error">' + esc(state.error) + '</div>' : '';
   }
 
-  function mayorHtml() {
-    var mayor = W.playerById(state, state.mayorId);
-    if (!mayor) return '';
-    return '<div class="banner info">Bürgermeister: ' + esc(mayor.name) + ' · Stimme zählt 1,5</div>';
-  }
-
   function player(id) {
     return W.playerById(state, id);
   }
@@ -415,11 +416,14 @@
 
   function choiceButton(id, label, meta, targetKind, extra) {
     var order = (state.selection || []).indexOf(Number(id));
+    var symbol = meta && !/[A-Za-zÄÖÜäöüß0-9]/.test(meta);
+    var place = order >= 0 && (state.selection || []).length > 1 ? 'Platz ' + (order + 1) : '';
+    var note = [symbol ? '' : meta, place].filter(Boolean).join(' · ');
     return '<button type="button" class="choice' + (selected(id) ? ' selected' : '') + '" data-act="select" data-id="' + id + '">' +
-      icon(targetKind) + '<span><span class="who">' + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
-      (meta ? '<span class="meta">' + esc(meta) + '</span>' : '') +
-      (order >= 0 && (state.selection || []).length > 1 ? '<span class="meta">Platz ' + (order + 1) + '</span>' : '') +
-      (extra || '') + '</span></button>';
+      icon(targetKind) + '<span><span class="who">' + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
+      (symbol ? '<span class="meta">' + esc(meta) + '</span>' : '') +
+      (note ? '<span class="sub">' + esc(note) + '</span>' : '') +
+      '</span></button>';
   }
 
   function blurb(role, person) {
@@ -439,7 +443,7 @@
         ? 'In Nacht 1 verbindest du zwei Personen, dich selbst eingeschlossen, bevor die Wölfe wählen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.'
         : 'Beim Aufdecken verbindest du zwei Personen, dich selbst eingeschlossen. Aussetzen geht nicht. Danach hast du nachts keine eigene Aktion.',
       jaeger: 'Wenn du stirbst, schießt du auf eine Person.',
-      waschbaer: 'Einmal darfst du die Rolle einer lebenden Person stehlen. Hat sie heute noch nicht gehandelt, gilt die Rolle sofort, sonst ab der nächsten Nacht.',
+      waschbaer: 'Einmal darfst du die Rolle einer lebenden Person stehlen. Diese Person wird zum Dorfbewohner. Du bekommst ihre Rolle und ihre Fähigkeit.',
       nachahmerin: 'Du kannst ' + uses + ' Mal die Fähigkeit einer anderen Person nachahmen und musst sie sofort einsetzen.',
       nutte: 'Jede Nacht schläfst du in einem anderen Haus. Dein eigenes Haus ist leer.',
       russe: 'Einmal am Tag darfst du ein Duell anfangen.',
@@ -566,10 +570,10 @@
       '<input id="last-input" type="text" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="Tag" aria-label="Tag" value="' + esc(draft.last) + '">' +
       '<button class="btn" type="submit">Name hinzufügen</button></form>' +
       names +
-      '<button type="button" class="btn" data-act="to-setup"' + (state.players.length < 4 ? ' disabled' : '') + '>Weiter zu den Rollen</button>' +
+      '<button type="button" class="btn" data-act="deal"' + (state.players.length < 4 ? ' disabled' : '') + '>Rollen verteilen</button>' +
       '<p class="hint">Mindestens 4 Mitspieler. Aktuell ' + state.players.length + '.</p>' +
       '<button type="button" class="btn secondary" data-act="stats">Statistik</button>' +
-      '<h2>Punkte</h2>' + scoreboardHtml(false) + resetControl() +
+      '<h2><span class="crown" aria-hidden="true">👑</span> Kronen</h2>' + scoreboardHtml(false) + resetControl() +
       rulesHtml() +
       '</div>';
   }
@@ -598,16 +602,27 @@
       '<button type="button" class="icon-btn" data-act="wolf-max" data-dir="1" aria-label="mehr maximale Werwölfe">+</button></span></div>';
   }
 
-  function renderSetup() {
+  function optionRow(act, label, pressed, explainAct, open, explain) {
+    var infoIcon = '<svg viewBox="0 0 512 512" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="32" stroke-miterlimit="10" d="M248 64C146.39 64 64 146.39 64 248s82.39 184 184 184 184-82.39 184-184S349.61 64 248 64z"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M220 220h32v116"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="32" d="M208 340h88"/><circle cx="248" cy="156" r="20" fill="currentColor"/></svg>';
+    return '<div class="toggle-card"><div class="opt-row">' +
+      '<button type="button" class="opt-text" data-act="' + act + '" aria-pressed="' + (pressed ? 'true' : 'false') + '">' + label + '</button>' +
+      '<button type="button" class="info-btn" data-act="' + explainAct + '" aria-expanded="' + (open ? 'true' : 'false') + '" aria-label="Erklärung">' + infoIcon + '</button>' +
+      '<button type="button" class="opt-rest" data-act="' + act + '" aria-label="' + label + '"></button>' +
+      '<span class="opt-switch" aria-hidden="true"></span></div>' +
+      (open ? '<p class="hint">' + explain + '</p>' : '') +
+      '</div>';
+  }
+
+  function roleSetupHtml() {
+    ensureSetup();
     var poolOn = !!state.rolePool;
     var sum = 0;
     var rows = W.ROLE_ORDER.map(function (role) {
       var count = state.counts[role] || 0;
-if (!(poolOn && role === 'werwolf')) sum += count;
+      if (!(poolOn && role === 'werwolf')) sum += count;
       if (poolOn && role === 'werwolf') return wolfBounds();
       return '<div class="stepper"><span class="role-name" role="img" aria-label="' + esc(W.roleName(role)) + '">' + roleIcon(role) + '</span><span class="role-name">' + esc(W.roleName(role)) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
-        '<button type="button" class="icon-btn" data-act="bump" data-role="' + role + '" data-dir="-1" aria-label="' + esc(W.roleName(role)) + ' weniger">−</button>' +
-        '<strong>' + count + '</strong>' +
+        '<button type="button" class="icon-btn" data-act="bump" data-role="' + role + '" data-dir="-1" aria-label="' + esc(W.roleName(role)) + ' weniger">−</button><strong>' + count + '</strong>' +
         '<button type="button" class="icon-btn" data-act="bump" data-role="' + role + '" data-dir="1" aria-label="' + esc(W.roleName(role)) + ' mehr">+</button>' +
         '</span></div>';
     }).join('');
@@ -623,31 +638,11 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     var poolExplain = poolOn
       ? 'Der Pool hat ' + sum + ' Karten, verteilt werden ' + state.players.length + '. Übrige Karten bleiben draußen. Werwölfe liegen zwischen Minimum und Maximum.'
       : 'Die Summe muss ' + state.players.length + ' sein. Belegt: ' + sum + '.';
-    var infoIcon = '<svg viewBox="0 0 512 512" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="32" stroke-miterlimit="10" d="M248 64C146.39 64 64 146.39 64 248s82.39 184 184 184 184-82.39 184-184S349.61 64 248 64z"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M220 220h32v116"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="32" d="M208 340h88"/><circle cx="248" cy="156" r="20" fill="currentColor"/></svg>';
-    function optionRow(act, label, pressed, explainAct, open, explain) {
-      return '<div class="toggle-card"><div class="opt-row">' +
-        '<button type="button" class="opt-text" data-act="' + act + '" aria-pressed="' + (pressed ? 'true' : 'false') + '">' + label + '</button>' +
-        '<button type="button" class="info-btn" data-act="' + explainAct + '" aria-expanded="' + (open ? 'true' : 'false') + '" aria-label="Erklärung">' + infoIcon + '</button>' +
-        '<button type="button" class="opt-rest" data-act="' + act + '" aria-label="' + label + '"></button>' +
-        '<span class="opt-switch" aria-hidden="true"></span></div>' +
-        (open ? '<p class="hint">' + explain + '</p>' : '') +
-        '</div>';
-    }
     var seerExplain = state.seerExact
       ? 'Die Seherin sieht nachts die genaue Rolle der Person.'
       : 'Die Seherin sieht nur Team Dorfbewohner oder Böse.';
-    var wolfExplain = state.showWolfAction
-      ? 'Am Morgen und am Tag steht dazu, woran jemand gestorben ist.'
-      : 'Am Morgen und am Tag steht nur, wer gestorben ist. Nicht, ob Werwolf, Hexe, Liebe, Gastgeberin oder Duell.';
-    var amorExplain = state.quickAmor !== false
-      ? 'Amor verbindet beim Aufdecken. Spiel starten wartet auf das Paar.'
-      : 'Amor verbindet in Nacht 1, als erste Rolle, vor den Wölfen.';
-    return header('Rollen', state.players.length + ' Mitspieler') +
-      '<div class="stack">' +
-      optionRow('toggle-pool', 'Mehr Rollen als Spieler: ' + (poolOn ? 'an' : 'aus'), poolOn, 'explain-pool', explainPool, poolExplain) +
+    return optionRow('toggle-pool', 'Mehr Rollen als Spieler: ' + (poolOn ? 'an' : 'aus'), poolOn, 'explain-pool', explainPool, poolExplain) +
       optionRow('toggle-seer', 'Seherin sieht genaue Rolle: ' + (state.seerExact ? 'an' : 'aus'), !!state.seerExact, 'explain-seer', explainSeer, seerExplain) +
-      optionRow('toggle-wolf-action', 'Werwolf-Aktion anzeigen: ' + (state.showWolfAction ? 'an' : 'aus'), !!state.showWolfAction, 'explain-wolf', explainWolf, wolfExplain) +
-      optionRow('toggle-quick-amor', 'Quick Amor: ' + (state.quickAmor !== false ? 'an' : 'aus'), state.quickAmor !== false, 'explain-amor', explainAmor, amorExplain) +
       (problem ? '<div class="banner error">' + esc(problem) + '</div>' : '') +
       '<div class="card stack">' + rows +
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('nachahmerin')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
@@ -656,9 +651,11 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       '<div class="stepper"><span class="role-name">Heiltränke ' + esc(W.roleName('hexe')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
       '<button type="button" class="icon-btn" data-act="heals" data-dir="-1" aria-label="weniger Heiltränke">−</button><strong>' + (state.healPotions || 2) + '</strong>' +
       '<button type="button" class="icon-btn" data-act="heals" data-dir="1" aria-label="mehr Heiltränke">+</button></span></div></div>' +
-      '<button type="button" class="btn secondary" data-act="suggest">Vorschlag</button>' +
-      '<button type="button" class="btn" data-act="deal"' + (problem ? ' disabled' : '') + '>Rollen verteilen</button>' +
-      '<button type="button" class="btn secondary" data-act="back-lobby">Zurück zu den Namen</button></div>';
+      '<button type="button" class="btn secondary" data-act="suggest">Vorschlag</button>';
+  }
+
+  function renderSetup() {
+    return roleSetupHtml();
   }
 
   function pairLine(id) {
@@ -697,12 +694,24 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     return '<div class="name-grid" data-cols="' + g.cols + '" style="--card:' + g.size + 'px;grid-template-columns:repeat(' + g.cols + ',' + g.size + 'px)">' + html + '</div>';
   }
 
+  function crownMarks(name) {
+    var n = Number(scores[name]);
+    if (!n) n = Number(scores[String(name || '').replace(' #', '#')]);
+    n = Math.max(0, Math.floor(n || 0));
+    if (!n) return '';
+    var html = '';
+    var i;
+    for (i = 0; i < n; i++) html += '<span class="seat-crown">👑</span>';
+    return '<span class="seat-crowns" aria-label="' + n + ' Kronen">' + html + '</span>';
+  }
+
   function nameButton(p, opts) {
     var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
     var locked = seatLocked(p.id);
     var disabled = !!(opts.disabled || locked);
     return '<button type="button" class="choice' + (opts.cls || '') + (locked ? ' locked' : '') + '" data-act="' + opts.act + '" data-id="' + p.id + '"' +
       (disabled ? ' disabled' : '') + ' style="--name-size:' + font + 'px">' +
+      (opts.crowns ? crownMarks(p.name) : '') +
       (locked ? '<span class="lock" aria-hidden="true">' + LOCK + '</span>' : '') +
       '<span class="who">' + esc(p.name) + '</span><span class="meta">' +
       esc(locked ? 'belegt' : opts.meta) + '</span></button>';
@@ -715,8 +724,8 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       return header('Rollen', named.name) +
         '<section class="stage card confirm-role">' +
         '<p class="confirm-name">' + esc(named.name) + '</p>' +
-        '<button type="button" class="btn xl" data-act="reveal-see">Rolle ansehen</button>' +
-        '<button type="button" class="btn secondary" data-act="back">Zurück</button></section>';
+        '<button type="button" class="btn" data-act="reveal-see">Rolle ansehen</button>' +
+        '<button type="button" class="btn secondary xl" data-act="back">Zurück</button></section>';
     }
     if (state.step === 'love') {
       var lover = player(state.activeId);
@@ -754,7 +763,6 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         : '';
       return header('Deine Rolle', person.name) +
         '<section class="stage card">' + hero(roleIcon(person.role), W.roleName(person.role)) +
-        '<p class="eyebrow">Nur für ' + esc(person.name) + '</p>' +
         '<p class="big-role">' + esc(W.roleName(person.role)) + '</p>' +
         '<p class="lead">' + esc(blurb(person.role, person)) + '</p>' +
         pair +
@@ -766,7 +774,8 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       return nameButton(p, {
         act: 'reveal-pick',
         cls: seen ? ' seen' : '',
-        meta: seen ? 'fertig, noch mal möglich' : 'Rolle ansehen'
+        meta: seen ? 'fertig, noch mal möglich' : 'Rolle ansehen',
+        crowns: true
       });
     }).join(''));
     var startReady = state.finishedIds ? state.finishedIds.length >= (state.players || []).length && !(state.pendingNamesPublic && state.pendingNamesPublic.length) : W.revealReady(state);
@@ -786,33 +795,101 @@ if (!(poolOn && role === 'werwolf')) sum += count;
   function renderDiscuss() {
     var list = nameGrid(sortedSeats().map(function (p) {
       var badges = [];
-      if (p.id === state.mayorId && p.alive) badges.push('Bürgermeister');
+      var mayor = p.id === state.mayorId && p.alive;
       if (!p.alive) badges.push('tot');
       var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
-      return '<div class="choice' + (p.alive ? '' : ' dead') + '" style="--name-size:' + font + 'px"><span><span class="who">' + esc(p.name) +
-        '</span>' + (badges.length ? '<span class="meta">' + esc(badges.join(' · ')) + '</span>' : '') + '</span></div>';
+      return '<div class="choice' + (p.alive ? '' : ' dead') + '" style="--name-size:' + font + 'px">' +
+        crownMarks(p.name) +
+        '<span class="who">' + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
+        '</span>' + (badges.length ? '<span class="meta">' + esc(badges.join(' · ')) + '</span>' : '') + '</div>';
     }).join(''));
     var telling = !!state.selfTell && !state.remoteNarrator;
-    return phaseHead(SUN, 'Tag ' + state.day, 'Diskussion') +
-      '<div class="stack">' + mayorHtml() +
-      '<p class="lead">' + (state.remoteNarrator
-        ? 'Der Erzähler hat das Host-Handy. Hier siehst du nur den Stand.'
-        : (telling
+    var russePossible = !!(state.counts && state.counts.russe);
+    var lead = state.remoteNarrator
+      ? 'Der Erzähler hat das Host-Handy. Hier siehst du nur den Stand.'
+      : (telling
         ? 'Du behältst das Handy. Trag Duell und Abstimmung ein. Die App wertet nach den bisherigen Regeln aus, inklusive Bürgermeisterstimme, Politiker und Jäger.'
-        : 'Redet offen. Das Duell geht vor der Abstimmung, einmal pro Russe. Die Abstimmung ist geheim.')) + '</p>' +
+        : 'Redet offen. Das Duell geht vor der Abstimmung, einmal pro Russe. Die Abstimmung ist geheim.');
+    if (!russePossible && !state.remoteNarrator && !telling) lead = '';
+    return phaseHead(SUN, 'Tag ' + state.day, 'Diskussion') +
+      '<div class="stack">' +
+      (lead ? '<p class="lead">' + lead + '</p>' : '') +
       (telling ? '<h2>Alle Rollen</h2><div class="stack">' + roleSheetRows() + '</div>' : list) +
-      (state.remoteNarrator ? '' : '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' +
-      '<button type="button" class="btn" data-act="to-vote">Zur Abstimmung</button>') +
+      (state.remoteNarrator || !russePossible ? '' : '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>') +
+      (state.remoteNarrator ? '' : '<button type="button" class="btn" data-act="to-vote">Zur Abstimmung</button>') +
       abortLink() + '</div>';
   }
 
   function renderAnnounce() {
     var box = state.announce || { title: 'Weiter', lines: [], button: 'Weiter' };
+    if (box.title === 'Abstimmung') return renderVoteBoard(box);
     return header(phaseEyebrow(), box.title) +
       hero('📢', 'Ansage') +
-      '<div class="stack">' + mayorHtml() +
-      '<div class="card stack">' + box.lines.map(function (line) { return '<p>' + esc(line) + '</p>'; }).join('') + '</div>' +
+      '<div class="stack">' +
+      '<div class="card stack">' + announceLines(box.lines).map(statusLine).join('') + '</div>' +
       '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button></div>';
+  }
+
+  function voteMarks(weight) {
+    var halves = Number(weight) || 0;
+    if (halves <= 0) return '';
+    var full = Math.floor(halves / 2);
+    var half = halves % 2;
+    var html = '';
+    var i;
+    for (i = 0; i < full; i++) html += '<span class="vote-x"></span>';
+    if (half) html += '<span class="vote-x half"></span>';
+    var spoken = (halves / 2).toFixed(1).replace('.', ',') + ' Stimmen';
+    return '<span class="votes" aria-label="' + esc(spoken) + '">' + html + '</span>';
+  }
+
+  function renderVoteBoard(box) {
+    var tally = state.lastTally || {};
+    var condemned = Number(state.pendingCondemn);
+    var list = nameGrid(sortedSeats().map(function (p) {
+      var mayor = p.id === state.mayorId && p.alive;
+      var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
+      var shift = p.id === condemned && p.alive
+        ? '<span class="card-status" aria-label="gestorben"><span class="before">❤️</span><span class="arrow">→</span><span>💀</span></span>'
+        : '';
+      return '<div class="choice' + (p.alive ? '' : ' dead') + '" style="--name-size:' + font + 'px">' +
+        crownMarks(p.name) +
+        voteMarks(tally[String(p.id)]) +
+        '<span class="who-block"><span class="who">' + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
+        '</span>' + shift + '</span></div>';
+    }).join(''));
+    return phaseHead(SUN, 'Tag ' + state.day, '') +
+      '<div class="stack">' + list +
+      '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button></div>';
+  }
+
+  function announceLines(lines) {
+    var rest = [];
+    var dead = [];
+    var alive = [];
+    (lines || []).forEach(function (line) {
+      if (/Stimme des Bürgermeisters zählt/.test(line)) return;
+      if (/ ist gestorben/.test(line)) dead.push(line);
+      else if (/ ist wieder im Dorf/.test(line)) alive.push(line);
+      else rest.push(line);
+    });
+    var byName = function (a, b) { return String(a).localeCompare(String(b), 'de'); };
+    dead.sort(byName);
+    alive.sort(byName);
+    return rest.concat(dead, alive);
+  }
+
+  function statusLine(line) {
+    var text = String(line || '');
+    var dead = text.match(/^(.*) ist gestorben(?: \([^)]*\))?\.$/);
+    var back = text.match(/^(.*) ist wieder im Dorf\.$/);
+    if (dead) return statusRow(dead[1], '❤️', '💀', 'gestorben');
+    if (back) return statusRow(back[1], '💀', '❤️', 'wieder da');
+    return '<p>' + esc(text) + '</p>';
+  }
+
+  function statusRow(name, before, after, label) {
+    return '<p class="status-row"><span>' + esc(name) + '</span><span class="status-icons" aria-label="' + esc(label) + '"><span class="before">' + before + '</span><span class="arrow">→</span><span>' + after + '</span></span></p>';
   }
 
   function roleSheetRows() {
@@ -953,7 +1030,8 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         act: 'night-pick',
         cls: (finished ? ' done' : '') + (dead ? ' dead' : ''),
         disabled: finished || held || dead,
-        meta: dead ? 'tot' : (finished ? 'schon dran' : 'tippen, wenn du dran bist')
+        meta: dead ? 'tot' : (finished ? 'schon dran' : 'tippen, wenn du dran bist'),
+        crowns: true
       });
     }).join(''));
     return phaseHead(MOON, 'Nacht ' + state.nightNumber, '') +
@@ -976,10 +1054,10 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     }).join(''));
     return phaseHead(SUN, 'Tag ' + state.day, state.selfTell ? 'Tippe jede lebende Person, dann ihre Stimme.' : '') +
       '<div class="stack">' + errorHtml() +
-      '<p class="hint">' + (state.selfTell
-        ? 'Die Reihenfolge ist egal. Zurück vor dem Bestätigen verbraucht die Stimme nicht. Der Bürgermeister zählt 1,5.'
-        : 'Die Abstimmung bleibt geheim. Danach ist der Name grau. Gezählt wird, wenn alle abgestimmt haben. Der Bürgermeister zählt 1,5.') + '</p>' +
-      names + abortLink() + '</div>';
+      (state.selfTell ? '<p class="hint">Die Reihenfolge ist egal. Zurück vor dem Bestätigen verbraucht die Stimme nicht. Der Bürgermeister zählt 1,5.</p>' : '') +
+      names +
+      (state.counts && state.counts.russe && !state.remoteNarrator ? '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' : '') +
+      abortLink() + '</div>';
   }
 
   function renderNightReady() {
@@ -1026,10 +1104,14 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         ? roleIcon(prompt.role) + ' ' + esc(seen ? seen.name : '')
         : esc(seen ? seen.name : '');
       var detail = exact ? W.roleName(prompt.role) : (prompt.label || 'Team Dorfbewohner');
+      var evil = !exact && detail === 'Böse';
+      var side = exact
+        ? '<p class="lead">ist ' + esc(detail) + '.</p>'
+        : '<p class="seer-side" aria-label="' + esc(detail) + '">= <span class="hand">' + (evil ? '👎' : '👍') + '</span></p>';
       var huge = state.selfTell ? ' seer-huge' : '';
       var forSeer = state.selfTell ? '<p class="lead">Zeig das Ergebnis der Seherin, dann verdecken.</p>' : '';
       return hero('👁️', 'Seherin') + '<section class="stage card"><p class="eyebrow">Seherin</p><p class="big-role' + huge + '">' + headline + '</p>' +
-        '<p class="lead">ist ' + esc(detail) + '.</p>' + forSeer +
+        side + forSeer +
         '<button type="button" class="btn" data-act="ack">Verdecken</button></section>';
     }
     return choiceBlock(person, prompt);
@@ -1064,8 +1146,8 @@ if (!(poolOn && role === 'werwolf')) sum += count;
     var list = '';
     if (prompt.kind === 'vote') {
       list = W.targetsFor(state, prompt, person.id).map(function (p) {
-        return choiceButton(p.id, p.name, p.id === state.mayorId ? 'Bürgermeister' : '', 'person');
-      }).join('') + choiceButton(0, 'Niemand', 'niemand lynchen', 'person');
+        return choiceButton(p.id, p.name, '', 'person', p.id === state.mayorId ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '');
+      }).join('') + choiceButton(0, 'Niemand', '', 'person');
     } else if (prompt.kind === 'schaufel') {
       list = W.targetsFor(state, prompt, person.id).map(function (p) {
         return choiceButton(p.id, p.name, 'tot', 'person');
@@ -1079,10 +1161,6 @@ if (!(poolOn && role === 'werwolf')) sum += count;
         return choiceButton(p.id, label, meta, kind);
       }).join('');
     }
-    var wolves = prompt.kind === 'wolf' ? '<div class="card stack"><p class="hint">Rudel</p>' +
-      W.wolfBoard(state, person.id).map(function (wolf) {
-        return '<p><strong>' + esc(wolf.name) + '</strong> · ' + esc(wolf.choice) + '</p>';
-      }).join('') + '</div>' : '';
     var skipLabel = '🚫 Ich will gar nichts machen';
     if (prompt.kind === 'heal') skipLabel = (state.heals || []).length ? 'Keine weiteren Heiltränke' : 'Keinen Heiltrank';
     if (prompt.kind === 'poison') skipLabel = 'Kein Gift';
@@ -1090,14 +1168,14 @@ if (!(poolOn && role === 'werwolf')) sum += count;
       prompt.kind === 'poison' || prompt.kind === 'schaufel' || prompt.kind === 'wolf' || prompt.kind === 'seer');
     var skip = canSkip ? '<button type="button" class="btn secondary" data-act="skip">' + skipLabel + '</button>' : '';
     var confirmLabel = prompt.kind === 'vote' ? 'Stimme abgeben' : (prompt.kind === 'nutte' ? 'Hier schlafen' : 'Fertig');
-    return intro + wolves + '<div class="stack">' + list + '</div>' +
+    return intro + '<div class="stack">' + list + '</div>' +
       '<button type="button" class="btn" data-act="confirm">' + confirmLabel + '</button>' + skip;
   }
 
   function intros(person, prompt) {
     var text = {
       vote: 'Wen wählst du? Der Bürgermeister zählt 1,5. Bei Gleichstand stirbt niemand.',
-      wolf: 'Das Rudel wählt ein Haus. Du siehst, was die anderen Werwölfe schon gewählt haben.',
+      wolf: 'Das Rudel wählt ein Haus.',
       nutte: 'In wessen Haus schläfst du diese Nacht? Dein eigenes Haus bleibt leer.',
       steal: 'Wessen Rolle stiehlst du? Hat die Person heute noch nicht gehandelt, gilt der Diebstahl sofort und du spielst die neue Fähigkeit noch in dieser Nacht. Sonst ab der nächsten Nacht. Das Haus der Gastgeberin spielt keine Rolle.',
       seer: 'Wessen Rolle willst du sehen?',
@@ -1228,7 +1306,13 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
   }
 
   function renderEnd() {
-    var rows = state.players.map(function (p) {
+    var winners = {};
+    (W.scoreRecipients ? W.scoreRecipients(state) : []).forEach(function (name) { winners[name] = true; });
+    var people = (state.players || []).slice().sort(function (a, b) {
+      var rank = function (p) { return winners[p.name] ? 0 : (p.alive ? 1 : 2); };
+      return rank(a) - rank(b);
+    });
+    var rows = people.map(function (p) {
       var love = (p.loverIds || []).map(function (id) {
         var other = player(id);
         return other ? other.name : '';
@@ -1240,22 +1324,24 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
         var other = player(otherId);
         if (other && old.indexOf(other.name) < 0) old.push(other.name);
       });
-      var meta = [p.alive ? 'lebt' : 'tot'];
-      if (p.id === state.mayorId) meta.push('Bürgermeister');
+      var meta = [];
+      var mayor = p.id === state.mayorId;
       if (love.length) meta.push('verliebt in ' + love.join(', '));
       else if (old.length) meta.push('Liebesband gelöst, war mit ' + old.join(', '));
-      return '<div class="rank"><span class="life" role="img" aria-label="' + (p.alive ? 'lebt' : 'tot') + '">' + (p.alive ? '❤️' : '💀') + '</span><span>' + esc(p.name) + '<span class="sub">' + esc(meta.join(' · ')) + '</span></span><strong>' +
-        roleIcon(p.role) + ' ' + esc(W.roleName(p.role)) + '</strong></div>';
+      var aliveLoser = p.alive && !winners[p.name];
+      return '<div class="rank"><span class="life' + (aliveLoser ? ' faded' : '') + '" role="img" aria-label="' + (p.alive ? 'lebt' : 'tot') + '">' + (p.alive ? '❤️' : '💀') + '</span><span>' +
+        (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
+        (meta.length ? '<span class="sub">' + esc(meta.join(' · ')) + '</span>' : '') + '</span><strong class="role-only" aria-label="' + esc(W.roleName(p.role)) + '">' +
+        roleIcon(p.role) + '</strong></div>';
     }).join('');
-    return header('Ende', 'Werwolf', true) +
+    return header('Ende', 'Werwolf') +
       hero('🏆', 'Sieg') +
       '<div class="stack"><div class="banner win">' + esc(W.WIN_TEXT[state.winner] || 'Spiel zu Ende') + '</div>' +
-      (state.winReason ? '<p class="lead">' + esc(state.winReason) + '</p>' : '') +
       '<div class="card">' + rows + '</div>' +
+      '<button type="button" class="btn" data-act="home">Weiter</button>' +
       (state.remote
-        ? '<p class="hint">Punkte und Statistik stehen nur auf dem Host-Handy.</p>'
-        : '<h2>Punkte</h2>' + scoreboardHtml(true) + resetControl() +
-          '<p class="hint">Das Home-Symbol oben behält die Namen und öffnet die Lobby. Punkte bleiben gespeichert.</p>') +
+        ? '<p class="hint">Kronen und Statistik stehen nur auf dem Host-Handy.</p>'
+        : '<h2><span class="crown" aria-hidden="true">👑</span> Kronen</h2>' + scoreboardHtml(true) + resetControl()) +
       '</div>';
   }
 
@@ -1274,17 +1360,18 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       if (b.points !== a.points) return b.points - a.points;
       return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
     });
-    if (!rows.length) return '<p class="hint">Noch keine Punkte. Wer am Ende lebt und im Siegerteam ist, bekommt einen Punkt.</p>';
+    if (!rows.length) return '<p class="hint">Noch keine Kronen. Wer am Ende lebt und im Siegerteam ist, bekommt eine Krone.</p>';
     return '<div class="card">' + rows.map(function (row) {
       return '<div class="rank' + (row.plus ? ' scored' : '') + '"><span>' + esc(row.name) +
-        (row.plus ? ' <strong class="plus">+1</strong>' : '') + '</span><strong>' + row.points + '</strong></div>';
+        (row.plus ? ' <strong class="plus">+<span class="crown" aria-hidden="true">👑</span></strong>' : '') +
+        '</span><strong>' + row.points + ' <span class="crown" aria-hidden="true">👑</span></strong></div>';
     }).join('') + '</div>';
   }
 
   function resetControl() {
-    if (!confirmReset) return '<button type="button" class="btn secondary" data-act="reset-ask">Punkte zurücksetzen</button>';
-    return '<div class="banner error">Alle gespeicherten Punkte löschen? Namen in alten Runden bleiben in der Liste, bis du bestätigst.</div>' +
-      '<button type="button" class="btn bad" data-act="reset-scores">Ja, Punkte zurücksetzen</button>' +
+    if (!confirmReset) return '<button type="button" class="btn secondary" data-act="reset-ask">Kronen zurücksetzen</button>';
+    return '<div class="banner error">Alle gespeicherten Kronen löschen? Namen in alten Runden bleiben in der Liste, bis du bestätigst.</div>' +
+      '<button type="button" class="btn bad" data-act="reset-scores">Ja, Kronen zurücksetzen</button>' +
       '<button type="button" class="btn secondary" data-act="reset-cancel">Abbrechen</button>';
   }
 
@@ -1377,25 +1464,51 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
 
   function renderStats() {
     if (statsMode !== 'list') return renderStatPlayer(statsMode);
-    var people = roster.players.slice().sort(function (a, b) {
-      var ka = P.normalize(a.first + ' ' + a.last);
-      var kb = P.normalize(b.first + ' ' + b.last);
-      if (ka < kb) return -1;
-      if (ka > kb) return 1;
-      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-    });
-    var rows = people.map(function (player) {
+    var people = roster.players.slice();
+    function readStat(player, field) {
       var stats = S.playerStats(history, player.id);
-      var meta = stats.games ? stats.games + ' Spiele · ' + stats.wins + ' Siege' : 'Noch kein Spiel';
-      var label = player.tag ? (player.first + ' #' + player.tag) : (player.first + ' ' + player.last);
-      var initial = (player.first || '?').charAt(0).toUpperCase();
-      return '<button type="button" class="choice person-row" data-act="open-player" data-pid="' + esc(player.id) + '">' +
-        '<span class="avatar" aria-hidden="true">' + esc(initial) + '</span><span><span class="who">' +
-        esc(label) + '</span><span class="meta">' + esc(meta) + '</span></span></button>';
+      if (!statsRole) return stats[field] || 0;
+      var row = stats.roles[statsRole];
+      if (!row) return 0;
+      if (field === 'games') return row.got || 0;
+      if (field === 'wins') return row.won || 0;
+      return row.deaths || 0;
+    }
+    function personLabel(player) {
+      return player.tag ? (player.first + ' #' + player.tag) : ((player.first + ' ' + player.last).trim() || player.first);
+    }
+    people.sort(function (a, b) {
+      var factor = statsDir === 'asc' ? 1 : -1;
+      if (statsSort === 'name') return personLabel(a).localeCompare(personLabel(b), 'de') * factor;
+      return (readStat(a, statsSort) - readStat(b, statsSort)) * factor;
+    });
+    var columns = [
+      { key: 'name', label: 'Name' },
+      { key: 'games', label: 'Spiele' },
+      { key: 'wins', label: 'Siege' },
+      { key: 'deaths', label: 'Tode' }
+    ];
+    var filters = [
+      { id: '', label: 'Alle' },
+      { id: 'werwolf', label: 'Wolf' },
+      { id: 'dorfbewohner', label: 'Dorf' }
+    ];
+    var filterHtml = '<div class="stats-filters">' + filters.map(function (filter) {
+      var on = statsRole === filter.id;
+      return '<button type="button" data-act="stats-role" data-role="' + filter.id + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + filter.label + '</button>';
+    }).join('') + '</div>';
+    var head = '<div class="stats-row head">' + columns.map(function (column) {
+      var on = statsSort === column.key;
+      var arrow = on ? (statsDir === 'asc' ? ' ▲' : ' ▼') : '';
+      return '<button type="button" class="' + (column.key === 'name' ? 'name' : '') + (on ? ' on' : '') + '" data-act="stats-sort" data-key="' + column.key + '">' + column.label + arrow + '</button>';
+    }).join('') + '</div>';
+    var body = people.map(function (player) {
+      return '<div class="stats-row"><span class="name">' + esc(personLabel(player)) + '</span><span>' +
+        readStat(player, 'games') + '</span><span>' + readStat(player, 'wins') + '</span><span>' + readStat(player, 'deaths') + '</span></div>';
     }).join('');
-    return header('Statistik', 'Spieler') +
-      '<div class="stack"><p class="lead">Tippe einen Namen. Alle Zahlen kommen aus den beendeten Spielen.</p>' +
-      (rows || '<p class="hint">Noch niemand gespeichert. Namen legt OpenScr unter Anzeigename und Tag an.</p>') +
+    return header('', 'Statistik') +
+      '<div class="stack">' + filterHtml +
+      (people.length ? '<div class="stats-table">' + head + body + '</div>' : '<p class="hint">Noch niemand gespeichert.</p>') +
       '<button type="button" class="btn secondary" data-act="stats-back">Zurück</button></div>';
   }
 
@@ -1533,13 +1646,21 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var telling = !!state.selfTell;
     var wolf = !!(state && state.showWolfAction);
     var quick = !state || state.quickAmor !== false;
+    var tellExplain = telling
+      ? 'Der Erzähler behält das Handy und spielt nicht mit. Er trägt Duell und Abstimmung ein.'
+      : 'Jede Person tippt nachts und bei der Abstimmung selbst.';
+    var wolfExplain = wolf
+      ? 'Am Morgen und am Tag steht dazu, woran jemand gestorben ist.'
+      : 'Am Morgen und am Tag steht nur, wer gestorben ist. Nicht, ob Werwolf, Hexe, Liebe, Gastgeberin oder Duell.';
+    var amorExplain = quick
+      ? 'Amor verbindet beim Aufdecken. Spiel starten wartet auf das Paar.'
+      : 'Amor verbindet in Nacht 1, als erste Rolle, vor den Wölfen.';
     return header('Werwolf', 'Optionen') + '<div class="stack">' +
-      '<button type="button" class="btn secondary" data-act="toggle-self-tell" aria-pressed="' + (telling ? 'true' : 'false') + '">Wir erzählen selber: ' + (telling ? 'an' : 'aus') + '</button>' +
-      '<button type="button" class="btn secondary" data-act="toggle-wolf-action" aria-pressed="' + (wolf ? 'true' : 'false') + '">Werwolf-Aktion anzeigen: ' + (wolf ? 'an' : 'aus') + '</button>' +
-      '<button type="button" class="btn secondary" data-act="toggle-quick-amor" aria-pressed="' + (quick ? 'true' : 'false') + '">Quick Amor: ' + (quick ? 'an' : 'aus') + '</button>' +
-      '<p class="hint">Gilt für die nächste Eingabe. Quick Amor lässt sich umlegen, solange Amor noch nicht verbunden hat.</p>' +
+      optionRow('toggle-self-tell', 'Wir erzählen selber: ' + (telling ? 'an' : 'aus'), telling, 'explain-tell', explainTell, tellExplain) +
+      optionRow('toggle-wolf-action', 'Werwolf-Aktion anzeigen: ' + (wolf ? 'an' : 'aus'), wolf, 'explain-wolf', explainWolf, wolfExplain) +
+      optionRow('toggle-quick-amor', 'Quick Amor: ' + (quick ? 'an' : 'aus'), quick, 'explain-amor', explainAmor, amorExplain) +
+      roleSetupHtml() +
       rulesHtml() +
-      '<button type="button" class="btn secondary" data-act="bug-open">Fehler melden</button>' +
       '</div>';
   }
 
@@ -1595,6 +1716,26 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     return player.name || player.first || '';
   }
 
+  function lobbyRoles() {
+    ensureSetup();
+    var counts = state.counts || W.defaultCounts((state.players || []).length || 4);
+    var pool = !!state.rolePool;
+    var teams = { wolf: 'Werwölfe', village: 'Dorf', politiker: 'Politiker', waschbaer: 'Waschbär' };
+    return W.ROLE_ORDER.filter(function (role) {
+      if ((counts[role] || 0) > 0) return true;
+      return pool && role === 'werwolf' && (state.wolfMax || 0) > 0;
+    }).map(function (role) {
+      var team = role === 'waschbaer' ? 'waschbaer' : W.teamOfRole(role);
+      return {
+        id: role,
+        emoji: ROLE_ICON[role] || '❓',
+        name: W.roleName(role),
+        team: teams[team] || '',
+        text: blurb(role)
+      };
+    });
+  }
+
   function sharedRosterModel() {
     return {
       query: draft.query || '',
@@ -1604,9 +1745,10 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       seated: (state.players || []).map(function (player) {
         return { id: String(player.id), pid: String(player.pid || ''), label: rosterLabel(player) };
       }),
-      startLabel: 'Weiter zu den Rollen',
+      startLabel: 'Rollen verteilen',
       startDisabled: (state.players || []).length < 4,
       statsLabel: 'Statistik',
+      roles: lobbyRoles(),
       rulesHtml: rulesHtml()
     };
   }
@@ -1690,10 +1832,37 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
         draft.last = draftPerson.tag || '';
         submitName();
       },
-      onStart: function () { act({ type: 'to-setup' }); },
-      onStats: function () { statsMode = 'list'; render(); }
+      onStart: function () { act({ type: 'deal' }); },
+      onStats: function () { statsMode = 'list'; statsRole = ''; statsSort = 'wins'; statsDir = 'desc'; render(); }
     });
     pushSharedRoster();
+  }
+
+  var duelSoundKey = '';
+  function playDuelSound() {
+    var duel = state && state.screen === 'duel' ? state.duel : null;
+    if (!duel) { duelSoundKey = ''; return; }
+    var file = '';
+    var key = '';
+    if (duel.stage === 'pull-ready' && duel.pull === 0) {
+      file = 'spin.mp3';
+      key = 'spin';
+    } else if (duel.stage === 'pull-ready' || duel.stage === 'pull-handoff') {
+      file = 'cock.mp3';
+      key = 'cock:' + duel.pull + ':' + duel.stage;
+    } else if (duel.stage === 'pull-result') {
+      file = duel.hit ? 'shot.mp3' : 'dry.mp3';
+      key = file + ':' + duel.pull;
+    } else {
+      return;
+    }
+    if (key === duelSoundKey) return;
+    duelSoundKey = key;
+    try {
+      var audio = new Audio('assets/revolver/' + file);
+      var played = audio.play();
+      if (played && played.catch) played.catch(function () {});
+    } catch (error) {}
   }
 
   function render() {
@@ -1720,8 +1889,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       else if (uiJoin && !isGuest()) html = renderJoin();
       else if (statsMode && state.screen === 'lobby') html = renderStats();
       else if (state.screen === 'wait') html = renderWait();
-      else if (state.screen === 'lobby') html = renderLobby();
-      else if (state.screen === 'setup') html = renderSetup();
+      else if (state.screen === 'lobby' || state.screen === 'setup') html = renderLobby();
       else if (state.screen === 'reveal') html = renderReveal();
       else if (state.screen === 'discuss') html = renderDiscuss();
       else if (state.screen === 'announce') html = renderAnnounce();
@@ -1732,6 +1900,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       else html = renderLobby();
       if (away && state.screen !== 'wait' && shell === 'index') html = '<div class="banner info">' + esc(away) + '</div>' + html;
       app.innerHTML = html;
+      playDuelSound();
       mountSharedRoster();
       mountSharedQr();
       armQuiet(!!(state && state.selfTell && state.screen === 'night' && state.step === 'call' && state.narratorQuiet));
@@ -1783,7 +1952,15 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     var el = event.target.closest('[data-act]');
     if (!el || el.disabled) return;
     var type = el.getAttribute('data-act');
-    if (type === 'stats') { statsMode = 'list'; render(); return; }
+    if (type === 'stats') { statsMode = 'list'; statsRole = ''; statsSort = 'wins'; statsDir = 'desc'; render(); return; }
+    if (type === 'stats-role') { statsRole = el.getAttribute('data-role') || ''; render(); return; }
+    if (type === 'stats-sort') {
+      var key = el.getAttribute('data-key') || 'wins';
+      if (key === statsSort) statsDir = statsDir === 'desc' ? 'asc' : 'desc';
+      else { statsSort = key; statsDir = key === 'name' ? 'asc' : 'desc'; }
+      render();
+      return;
+    }
     if (type === 'stats-back') {
       statsMode = statsMode && statsMode !== 'list' ? 'list' : null;
       render();
@@ -1803,15 +1980,17 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       act({ type: 'set-nach', value: next });
       return;
     }
-    if (type === 'explain-pool' || type === 'explain-seer' || type === 'explain-wolf' || type === 'explain-amor') {
+    if (type === 'explain-pool' || type === 'explain-seer' || type === 'explain-wolf' || type === 'explain-amor' || type === 'explain-tell') {
       var nextPool = type === 'explain-pool' && !explainPool;
       var nextSeer = type === 'explain-seer' && !explainSeer;
       var nextWolf = type === 'explain-wolf' && !explainWolf;
       var nextAmor = type === 'explain-amor' && !explainAmor;
+      var nextTell = type === 'explain-tell' && !explainTell;
       explainPool = nextPool;
       explainSeer = nextSeer;
       explainWolf = nextWolf;
       explainAmor = nextAmor;
+      explainTell = nextTell;
       render();
       return;
     }
@@ -1987,7 +2166,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
 
   var gearBtn = document.getElementById('gear-btn');
   var settingsPanel = document.getElementById('settings-panel');
-  gearBtn.addEventListener('click', function () {
+  if (gearBtn) gearBtn.addEventListener('click', function () {
     syncSettings();
     settingsPanel.hidden = false;
   });
@@ -2055,6 +2234,8 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
   function onNet() {
     if (!isGuest()) {
       ensureGrid();
+      if (state && (state.screen === 'lobby' || state.screen === 'setup')) ensureSetup();
+      rememberSetup();
       applyScores();
       persist();
     }
@@ -2132,8 +2313,13 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       state.quickAmor = !savedSetup || savedSetup.quickAmor !== false;
       if (savedSetup && 'seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
       if (savedSetup && 'rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
+      if (savedSetup && savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));
+      if (savedSetup && savedSetup.nachUses != null) state.nachUses = savedSetup.nachUses;
+      if (savedSetup && savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
+      if (savedSetup && savedSetup.wolfMin != null) state.wolfMin = savedSetup.wolfMin;
+      if (savedSetup && savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
+      if (state.screen === 'setup') state.screen = 'lobby';
     }
-    if (state.screen === 'setup') rememberSetup();
     ensureGrid();
     booting = false;
     saveReady = true;
