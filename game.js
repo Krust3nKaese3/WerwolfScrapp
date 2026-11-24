@@ -191,7 +191,7 @@
   function refreshSeatNames(state) {
     if (!root.WerwolfPlayers || !state || !state.players) return;
     state.players.forEach(function (player) {
-      if (player.tag && player.first) player.name = player.first + '#' + player.tag;
+      if (player.tag && player.first) player.name = player.first + ' #' + player.tag;
     });
     var rows = [];
     state.players.forEach(function (player) {

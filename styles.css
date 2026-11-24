@@ -104,6 +104,7 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
   box-shadow: var(--shadow);
   font-weight: 650;
   min-height: 64px;
+  padding-right: 10px;
 }
 .btn[aria-pressed]::after {
   content: "";
@@ -114,6 +115,65 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
   flex: 0 0 48px;
 }
 .btn[aria-pressed="true"]::after {
+  background: var(--accent) radial-gradient(circle at 34px 50%, var(--accent-ink) 7px, transparent 8px);
+}
+.toggle-card { display: flex; flex-direction: column; gap: 8px; }
+.opt-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 64px;
+  padding: 8px 10px 8px 18px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.opt-row .opt-text {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  text-align: left;
+  padding: 8px 0;
+  pointer-events: none;
+}
+.opt-row .opt-rest {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  z-index: 1;
+}
+.opt-row .info-btn {
+  position: relative;
+  z-index: 2;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #a1a1aa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.opt-row .info-btn svg { width: 28px; height: 28px; display: block; }
+.opt-row .info-btn[aria-expanded="true"] { color: var(--accent); }
+.opt-switch {
+  width: 48px;
+  height: 28px;
+  flex: 0 0 48px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: #2C2C34 radial-gradient(circle at 14px 50%, #F4F4F5 7px, transparent 8px);
+  pointer-events: none;
+}
+.opt-row .opt-text[aria-pressed="true"] ~ .opt-switch {
   background: var(--accent) radial-gradient(circle at 34px 50%, var(--accent-ink) 7px, transparent 8px);
 }
 .suggest { display: flex; flex-direction: column; gap: 8px; }
@@ -151,7 +211,9 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
   min-width: var(--card);
   min-height: var(--card);
   aspect-ratio: 1;
+  display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
   text-align: center;
   padding: 10px;
@@ -167,6 +229,8 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
 .name-grid .choice .who {
   display: block;
   width: 100%;
+  margin-top: auto;
+  margin-bottom: auto;
   font-size: var(--name-size, 18px);
   line-height: 1.15;
   font-weight: 600;
@@ -210,9 +274,40 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
   justify-content: center;
 }
 .name-grid .lock svg { width: 18px; height: 18px; display: block; }
-.choice .meta, .sub { display: block; color: var(--muted); font-size: 14px; font-weight: 550; margin-top: 2px; }
+.stack .choice > span {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.name-grid .choice > span {
+  display: block;
+  flex: 0 1 auto;
+  align-items: unset;
+  gap: 0;
+}
+.stack .choice .who { min-width: 0; }
+.stack .choice .meta {
+  display: inline;
+  margin: 0 0 0 auto;
+  flex: 0 0 auto;
+  font-size: 22px;
+}
+.choice .meta, .sub { color: var(--muted); font-size: 14px; font-weight: 550; }
+.sub { display: block; margin-top: 2px; }
 .mark { width: 32px; height: 32px; flex: 0 0 32px; display: inline-flex; align-items: center; justify-content: center; color: var(--accent); font-size: 22px; line-height: 1; }
-.hero { font-size: 48px; line-height: 1; text-align: center; margin: 0; }
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.55);
+}
+.modal .card { width: min(100%, 480px); }
 .hero .flask { width: 56px; height: 70px; }
 .flask { width: 1.15em; height: 1.4em; vertical-align: -0.25em; display: inline-block; }
 .life { font-size: 20px; margin-right: 4px; }
