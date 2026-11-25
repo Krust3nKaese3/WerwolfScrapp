@@ -150,6 +150,7 @@
     p.nachLeft = 0;
     p.schaufelUsed = false;
     p.osirisLeft = 0;
+    p.oracleLast = null;
     p.russeUsed = false;
     p.hunterShot = false;
     p.amorPair = null;
@@ -178,6 +179,7 @@
     delete copy.log;
     delete copy.book;
     delete copy.dealt;
+    delete copy.roleCards;
     delete copy.peeked;
     delete copy.pendingThefts;
     delete copy.copyHexes;
@@ -336,11 +338,11 @@
   }
 
   var CLAIM = { 'reveal-pick': 1, 'night-pick': 1, 'vote-pick': 1, 'hunter-pick': 1, 'duel-pick': 1 };
-  var TURN = { go: 1, back: 1, ack: 1, confirm: 1, select: 1, skip: 1, cancel: 1, 'reveal-see': 1 };
+  var TURN = { go: 1, back: 1, ack: 1, confirm: 1, select: 1, skip: 1, cancel: 1, 'reveal-see': 1, 'oracle-role': 1 };
   var GUEST_GLOBAL = {
     'start-game': 1, ack: 1, 'to-vote': 1, 'to-duel': 1, cancel: 1,
     'add-name': 1, 'add-player': 1, deal: 1,
-    'set-count': 1, 'set-nach': 1, 'set-osiris': 1, 'set-heals': 1, 'set-wolf-min': 1, 'set-wolf-max': 1,
+    'set-count': 1, 'set-nach': 1, 'set-osiris': 1, 'set-oracle': 1, 'set-heals': 1, 'set-wolf-min': 1, 'set-wolf-max': 1,
     'toggle-seer': 1, 'toggle-wolf-action': 1, 'toggle-quick-amor': 1, 'toggle-self-tell': 1, 'toggle-legacy-witch': 1, 'toggle-wolf-call': 1,
     'toggle-pool': 1, suggest: 1
   };

@@ -15,12 +15,13 @@
     russe: 'Russe',
     politiker: 'Politiker',
     schaufel: 'Schaufel',
-    osiris: 'Osiris'
+    osiris: 'Osiris',
+    wahrsager: 'Wahrsager'
   };
 
   var ROLE_ORDER = [
     'werwolf', 'dorfbewohner', 'hexe', 'seherin', 'amor', 'jaeger',
-    'waschbaer', 'nachahmerin', 'nutte', 'russe', 'politiker', 'schaufel', 'osiris'
+    'waschbaer', 'nachahmerin', 'nutte', 'russe', 'politiker', 'schaufel', 'osiris', 'wahrsager'
   ];
 
   /* Erzählermodus: feste Aufrufreihenfolge, einmal pro möglicher Karte.
@@ -37,11 +38,12 @@
      Außerhalb des Erzählermodus heilt sie weiter blind. Der Modus gilt zum Zeitpunkt ihres Aufrufs.
      Schaufel holt nur Personen zurück, die schon als tot gelten.
      Osiris kann nachts nur auslösen, wenn schon jemand tot ist. Wer es war, bleibt verdeckt. Am Morgen stimmt das Dorf ab.
+     Wahrsager sieht zufällige Rollenkarten aus dem ganzen Vorrat, auch aussortierte, tippt eine an und eine Person, lebend oder tot. Danach nur richtig oder falsch. Dieselbe Person nicht zwei Nächte hintereinander.
      Jäger, Russe, Politiker und Dorfbewohner haben nachts keine eigene Aktion und werden nicht gerufen.
      Der Jäger schießt erst, wenn er stirbt. Der Russe duelliert am Tag.
      Kopiert die Nachahmerin eine Rolle mit Nachtaktion, läuft diese Aktion in ihrem Aufruf, nicht als eigene Karte. */
   var NARRATOR_CALL_ORDER = [
-    'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'werwolf',
+    'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'wahrsager', 'werwolf',
     'hexe', 'schaufel', 'osiris'
   ];
 
@@ -87,7 +89,7 @@
     var counts = blankCounts();
     counts.werwolf = n >= 16 ? 4 : n >= 11 ? 3 : n >= 7 ? 2 : 1;
     var order = [
-      ['seherin', 5], ['hexe', 6], ['jaeger', 7], ['amor', 7], ['nutte', 7],
+      ['seherin', 5], ['wahrsager', 6], ['hexe', 6], ['jaeger', 7], ['amor', 7], ['nutte', 7],
       ['waschbaer', 8], ['nachahmerin', 8], ['politiker', 9], ['schaufel', 9], ['russe', 10], ['osiris', 11]
     ];
     order.forEach(function (pair) {
@@ -243,6 +245,7 @@
       russeUsed: false,
       hunterShot: false,
       osirisLeft: role === 'osiris' ? (arguments[5] == null ? 1 : arguments[5]) : 0,
+      oracleLast: null,
       loverIds: [],
       notice: null
     };
@@ -363,6 +366,7 @@
       counts: counts,
       nachUses: 1,
       osirisUses: 1,
+      oracleCount: 2,
       healPotions: 2,
       rolePool: true,
       seerExact: false,
@@ -381,6 +385,7 @@
       counts: state.counts || defaultCounts(state.players.length),
       nachUses: state.nachUses == null ? 1 : state.nachUses,
       osirisUses: state.osirisUses == null ? 1 : state.osirisUses,
+      oracleCount: state.oracleCount == null ? 2 : state.oracleCount,
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
@@ -397,6 +402,7 @@
     state.counts = config.counts;
     state.nachUses = config.nachUses;
     state.osirisUses = config.osirisUses == null ? 1 : config.osirisUses;
+    state.oracleCount = config.oracleCount == null ? 2 : config.oracleCount;
     state.healPotions = config.healPotions;
     state.rolePool = !!config.rolePool;
     state.seerExact = !!config.seerExact;
@@ -464,6 +470,8 @@
     var state = freshPlaying(players, counts, nachUses, healPotions, opts.log || [], osirisUses);
     state.dealt = {};
     state.players.forEach(function (player) { state.dealt[player.id] = player.role; });
+    state.roleCards = potentialCards(counts, rolePool, wolfMax);
+    state.oracleCount = opts.oracleCount == null ? 2 : opts.oracleCount;
     state._rng = rng;
     state.rolePool = rolePool;
     state.wolfMin = wolfMin;
@@ -548,6 +556,25 @@
     };
   }
 
+  function potentialCards(counts, rolePool, wolfMax) {
+    var bag = [];
+    ROLE_ORDER.forEach(function (role) {
+      var n = role === 'werwolf' && rolePool ? wolfMax : ((counts && counts[role]) || 0);
+      for (var i = 0; i < n; i++) bag.push(role);
+    });
+    return bag;
+  }
+
+  function drawOracleRoles(state) {
+    var cards = (state.roleCards || []).slice();
+    if (!cards.length) cards = potentialCards(state.counts, !!state.rolePool, state.rolePool ? state.wolfMax : ((state.counts && state.counts.werwolf) || 0));
+    shuffle(cards, state._rng || Math.random);
+    var n = state.oracleCount == null ? 2 : state.oracleCount;
+    if (!isFinite(n) || n < 1) n = 1;
+    if (n > cards.length) n = cards.length;
+    return cards.slice(0, n);
+  }
+
   function exactBag(counts) {
     var bag = [];
     ROLE_ORDER.forEach(function (role) {
@@ -609,6 +636,7 @@
       rng: rng,
       nachUses: state.nachUses,
       osirisUses: state.osirisUses == null ? 1 : state.osirisUses,
+      oracleCount: state.oracleCount == null ? 2 : state.oracleCount,
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
@@ -1396,6 +1424,7 @@
     if (role === 'nutte') return 'nutte';
     if (role === 'schaufel') return 'schaufel';
     if (role === 'osiris') return 'osiris';
+    if (role === 'wahrsager') return 'wahrsager';
     if (role === 'nachahmerin') return 'nachahmerin';
     return null;
   }
@@ -1418,6 +1447,11 @@
     if (player.role === 'nachahmerin' && player.nachLeft > 0) return { kind: 'copy', target: 'person', depth: 0 };
     if (player.role === 'waschbaer' && !player.stealUsed) return { kind: 'steal', target: 'person', forced: false };
     if (player.role === 'seherin') return { kind: 'seer', target: 'person' };
+    if (player.role === 'wahrsager') {
+      var shown = drawOracleRoles(state);
+      if (!shown.length) return null;
+      return { kind: 'oracle', target: 'person', roles: shown, forced: true };
+    }
     if (player.role === 'werwolf') return { kind: 'wolf', target: 'house' };
     if (player.role === 'schaufel' && !player.schaufelUsed && revealedDead(state).length) {
       return { kind: 'schaufel', target: 'person', forced: false };
@@ -1859,6 +1893,7 @@
     }
     state.promptIndex += 1;
     state.selection = [];
+    state.oraclePick = null;
     state.error = '';
     if (state.promptIndex >= state.prompts.length) {
       if (state.screen === 'night' && state.selfTell) finishNarratorTurn(state);
@@ -1883,6 +1918,11 @@
     var prompt = currentPrompt(state);
     if (!prompt) return;
     var player = playerById(state, currentId(state));
+    if (action.type === 'oracle-role') {
+      state.oraclePick = Number(action.index);
+      state.error = '';
+      return;
+    }
     if (action.type === 'select') {
       rotateSelection(state, action.id);
       return;
@@ -1890,7 +1930,7 @@
     if (action.type === 'ack') {
       if (prompt.kind === 'notice') player.notice = null;
       if (prompt.kind === 'love') state.seenLove[player.id] = loveSignature(state, player.id);
-      if (prompt.kind === 'sleep' || prompt.kind === 'love' || prompt.kind === 'notice' || prompt.kind === 'info' || prompt.kind === 'seer-result') {
+      if (prompt.kind === 'sleep' || prompt.kind === 'love' || prompt.kind === 'notice' || prompt.kind === 'info' || prompt.kind === 'seer-result' || prompt.kind === 'oracle-result') {
         note(state, 'Weiter ' + player.name + ' ' + prompt.kind);
         advancePrompt(state);
         return;
@@ -2021,6 +2061,18 @@
       consumePotion(state, player, prompt);
       return [];
     }
+    if (prompt.kind === 'oracle') {
+      var shownRoles = prompt.roles || [];
+      var roleAt = Number(state.oraclePick);
+      if (state.oraclePick == null || !shownRoles.length || roleAt < 0 || roleAt >= shownRoles.length) return 'Wähle eine Rolle.';
+      var guessed = chosenId(state, action);
+      var person = playerById(state, guessed);
+      if (!person) return 'Wähle eine Person.';
+      if (player.oracleLast != null && Number(player.oracleLast) === person.id) return 'Diese Person war letzte Nacht dran.';
+      player.oracleLast = person.id;
+      state.oraclePick = null;
+      return [{ kind: 'oracle-result', hit: person.role === shownRoles[roleAt], role: shownRoles[roleAt], seenId: person.id }];
+    }
     if (prompt.kind === 'seer') {
       var seen = chosenId(state, action);
       if (!playerById(state, seen) || seen === player.id) return 'Wähle eine andere Person.';
@@ -2136,6 +2188,11 @@
     if (ability === 'wolf') return [{ kind: 'kill', attack: 'wolf', target: 'house', forced: true }];
     if (ability === 'jaeger') return [{ kind: 'kill', attack: 'jaeger', target: 'house', forced: true }];
     if (ability === 'seherin') return [{ kind: 'seer', target: 'person', forced: true }];
+    if (ability === 'wahrsager') {
+      var copiedRoles = drawOracleRoles(state);
+      if (!copiedRoles.length) return [{ kind: 'info', text: 'Keine Rollenkarte übrig. Der Blick verpufft.' }];
+      return [{ kind: 'oracle', target: 'person', roles: copiedRoles, forced: true }];
+    }
     if (ability === 'amor') {
       if (living(state).length < 2) {
         return [{ kind: 'info', text: 'Es leben keine zwei Personen. Die Verbindung entfällt.' }];
@@ -2363,6 +2420,13 @@
       if (!isFinite(uses) || uses < 1) uses = 1;
       if (uses > 5) uses = 5;
       state.osirisUses = uses;
+      state.error = '';
+      return;
+    }
+    if (action.type === 'set-oracle') {
+      var cards = Math.floor(Number(action.value));
+      if (!isFinite(cards) || cards < 1) cards = 1;
+      state.oracleCount = cards;
       state.error = '';
       return;
     }

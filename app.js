@@ -26,6 +26,7 @@
   var explainTell = false;
   var explainLegacy = false;
   var explainCall = false;
+  var oracleInfo = false;
   var confirmWolfId = 0;
   var uiJoin = false;
   var mpError = '';
@@ -122,7 +123,7 @@
   var saveQueue = Promise.resolve();
 
   function setupActions(type) {
-    return type === 'set-count' || type === 'set-nach' || type === 'set-osiris' || type === 'set-heals' || type === 'set-wolf-min' ||
+    return type === 'set-count' || type === 'set-nach' || type === 'set-osiris' || type === 'set-oracle' || type === 'set-heals' || type === 'set-wolf-min' ||
       type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-quick-amor' ||
       type === 'toggle-self-tell' || type === 'toggle-legacy-witch' || type === 'toggle-wolf-call' || type === 'toggle-pool' || type === 'suggest' ||
       type === 'undo-deal' || type === 'to-setup';
@@ -134,6 +135,7 @@
     if (state.counts) savedSetup.counts = JSON.parse(JSON.stringify(state.counts));
     if (state.nachUses != null) savedSetup.nachUses = state.nachUses;
     if (state.osirisUses != null) savedSetup.osirisUses = state.osirisUses;
+    if (state.oracleCount != null) savedSetup.oracleCount = state.oracleCount;
     if (state.healPotions != null) savedSetup.healPotions = state.healPotions;
     if (state.rolePool != null) savedSetup.rolePool = !!state.rolePool;
     if (state.seerExact != null) savedSetup.seerExact = !!state.seerExact;
@@ -151,6 +153,7 @@
     if (savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));
     if (savedSetup.nachUses != null) state.nachUses = savedSetup.nachUses;
     if (savedSetup.osirisUses != null) state.osirisUses = savedSetup.osirisUses;
+    if (savedSetup.oracleCount != null) state.oracleCount = savedSetup.oracleCount;
     if (savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
     if ('rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
     if ('seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
@@ -378,7 +381,8 @@
     russe: '🎲',
     politiker: '🎤',
     schaufel: '🪏',
-    osiris: '⚱️'
+    osiris: '⚱️',
+    wahrsager: '🧿'
   };
 
   function roleIcon(role) {
@@ -434,7 +438,8 @@
     var symbol = meta && !/[A-Za-zÄÖÜäöüß0-9]/.test(meta);
     var place = order >= 0 && (state.selection || []).length > 1 ? 'Platz ' + (order + 1) : '';
     var note = [symbol ? '' : meta, place].filter(Boolean).join(' · ');
-    return '<button type="button" class="choice' + (meta === 'tot' ? ' dead' : '') + (selected(id) ? ' selected' : '') + '" data-act="select" data-id="' + id + '">' +
+    return '<button type="button" class="choice' + (meta === 'tot' || meta === 'gestern' ? ' dead' : '') + (selected(id) ? ' selected' : '') + '"' +
+      (meta === 'gestern' ? ' disabled' : '') + ' data-act="select" data-id="' + id + '">' +
       (Number(id) > 0 ? crownMarks(label) : '') +
       icon(targetKind) + '<span><span class="who">' + mayorMark(id) + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
       (symbol ? '<span class="meta">' + esc(meta) + '</span>' : '') +
@@ -468,7 +473,8 @@
       russe: 'Einmal am Tag darfst du ein Duell anfangen.',
       politiker: 'Du gewinnst nur, wenn die Abstimmung dich wählt. Sonst hast du keine Fähigkeit.',
       schaufel: 'Einmal darfst du eine tote Person zurückholen. Liebe und verbrauchte Kräfte bleiben, wie sie waren.',
-      osiris: 'Bis zu ' + (state.osirisUses || 1) + ' Mal im Spiel kannst du nachts auslösen, wenn schon jemand tot ist. Am Morgen stimmt das Dorf ab, wer zurückkehrt. Wer Osiris ist, bleibt verdeckt.'
+      osiris: 'Bis zu ' + (state.osirisUses || 1) + ' Mal im Spiel kannst du nachts auslösen, wenn schon jemand tot ist. Am Morgen stimmt das Dorf ab, wer zurückkehrt. Wer Osiris ist, bleibt verdeckt.',
+      wahrsager: 'Nachts siehst du zufällige Rollenkarten aus dem ganzen Vorrat, auch aus aussortierten Karten. Du tippst eine Karte und eine Person an, auch eine tote. Danach siehst du nur, ob das stimmt. Dieselbe Person nicht zwei Nächte hintereinander.'
     };
     return text[role] || '';
   }
@@ -620,11 +626,14 @@
       '<button type="button" class="icon-btn" data-act="wolf-max" data-dir="1" aria-label="mehr maximale Werwölfe">+</button></span></div>';
   }
 
+  function infoIcon() {
+    return '<svg viewBox="0 0 512 512" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="32" stroke-miterlimit="10" d="M248 64C146.39 64 64 146.39 64 248s82.39 184 184 184 184-82.39 184-184S349.61 64 248 64z"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M220 220h32v116"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="32" d="M208 340h88"/><circle cx="248" cy="156" r="20" fill="currentColor"/></svg>';
+  }
+
   function optionRow(act, label, pressed, explainAct, open, explain) {
-    var infoIcon = '<svg viewBox="0 0 512 512" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="32" stroke-miterlimit="10" d="M248 64C146.39 64 64 146.39 64 248s82.39 184 184 184 184-82.39 184-184S349.61 64 248 64z"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="32" d="M220 220h32v116"/><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-miterlimit="10" stroke-width="32" d="M208 340h88"/><circle cx="248" cy="156" r="20" fill="currentColor"/></svg>';
     return '<div class="toggle-card"><div class="opt-row">' +
       '<button type="button" class="opt-text" data-act="' + act + '" aria-pressed="' + (pressed ? 'true' : 'false') + '">' + label + '</button>' +
-      '<button type="button" class="info-btn" data-act="' + explainAct + '" aria-expanded="' + (open ? 'true' : 'false') + '" aria-label="Erklärung">' + infoIcon + '</button>' +
+      '<button type="button" class="info-btn" data-act="' + explainAct + '" aria-expanded="' + (open ? 'true' : 'false') + '" aria-label="Erklärung">' + infoIcon() + '</button>' +
       '<button type="button" class="opt-rest" data-act="' + act + '" aria-label="' + label + '"></button>' +
       '<span class="opt-switch" aria-hidden="true"></span></div>' +
       (open ? '<p class="hint">' + explain + '</p>' : '') +
@@ -672,6 +681,9 @@
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('osiris')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
       '<button type="button" class="icon-btn" data-act="osiris-uses" data-dir="-1" aria-label="weniger Osiris-Einsätze">−</button><strong>' + (state.osirisUses == null ? 1 : state.osirisUses) + '</strong>' +
       '<button type="button" class="icon-btn" data-act="osiris-uses" data-dir="1" aria-label="mehr Osiris-Einsätze">+</button></span></div>' +
+      '<div class="stepper"><span class="role-name">Karten ' + esc(W.roleName('wahrsager')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
+      '<button type="button" class="icon-btn" data-act="oracle-count" data-dir="-1" aria-label="weniger Wahrsager-Karten">−</button><strong>' + (state.oracleCount == null ? 2 : state.oracleCount) + '</strong>' +
+      '<button type="button" class="icon-btn" data-act="oracle-count" data-dir="1" aria-label="mehr Wahrsager-Karten">+</button></span></div>' +
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('nachahmerin')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
       '<button type="button" class="icon-btn" data-act="nach" data-dir="-1" aria-label="weniger Einsätze">−</button><strong>' + state.nachUses + '</strong>' +
       '<button type="button" class="icon-btn" data-act="nach" data-dir="1" aria-label="mehr Einsätze">+</button></span></div>' +
@@ -1148,6 +1160,22 @@
     if (prompt.kind === 'info') {
       return hero('📢', 'Hinweis') + '<div class="card"><p class="lead">' + esc(prompt.text) + '</p></div><button type="button" class="btn" data-act="ack">Weiter</button>';
     }
+    if (prompt.kind === 'oracle-result') {
+      var guessed = player(prompt.seenId);
+      var guessedName = guessed ? guessed.name : '';
+      var phrase = prompt.hit ? '=' : '≠';
+      var detail = oracleInfo
+        ? '<p class="lead"><strong>' + esc(W.roleName(prompt.role)) + '</strong></p>'
+        : '';
+      return '<section class="stage card">' +
+        '<p class="big-role">' + esc(guessedName) + '</p>' +
+        '<p class="oracle-read">' +
+        '<span class="oracle-sign" aria-label="' + (prompt.hit ? 'gleich' : 'nicht gleich') + '">' + phrase + '</span>' +
+        '<button type="button" class="oracle-icon" data-act="oracle-info" aria-label="Erklärung">' + roleIcon(prompt.role) + '</button>' +
+        '<button type="button" class="info-btn" data-act="oracle-info" aria-expanded="' + (oracleInfo ? 'true' : 'false') + '" aria-label="Erklärung">' + infoIcon() + '</button></p>' +
+        detail +
+        '<button type="button" class="btn" data-act="ack">Verdecken</button></section>';
+    }
     if (prompt.kind === 'seer-result') {
       var seen = player(prompt.seenId);
       var exact = !!prompt.exact;
@@ -1195,6 +1223,20 @@
     var kind = prompt.target === 'house' ? 'house' : 'person';
     var intro = intros(person, prompt);
     var list = '';
+    if (prompt.kind === 'oracle') {
+      var icons = '<div class="oracle-roles">' + (prompt.roles || []).map(function (role, index) {
+        var on = Number(state.oraclePick) === index;
+        return '<button type="button" class="choice' + (on ? ' selected' : '') + '" data-act="oracle-role" data-index="' + index + '" aria-label="Rolle">' + roleIcon(role) + '</button>';
+      }).join('') + '</div>';
+      var people = (state.players || []).map(function (p) {
+        var blocked = person && person.oracleLast != null && Number(person.oracleLast) === p.id;
+        return choiceButton(p.id, p.name, blocked ? 'gestern' : (p.alive ? '' : 'tot'), 'person');
+      }).join('');
+      return hero('🧿', 'Wahrsager') +
+        '<p class="lead">Tippe eine Karte an, dann eine Person. Auch Tote. Dieselbe Person nicht zwei Nächte hintereinander.</p>' +
+        '<div class="stack">' + icons + people + '</div>' +
+        '<button type="button" class="btn" data-act="confirm">Fertig</button>';
+    }
     if (prompt.kind === 'osiris') {
       list = '';
     } else if (prompt.kind === 'vote' && state.voteKind === 'osiris') {
@@ -2103,6 +2145,12 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       act({ type: 'set-osiris', value: osirisUses });
       return;
     }
+    if (type === 'oracle-count') {
+      var oracleCount = (state.oracleCount == null ? 2 : state.oracleCount) + Number(el.getAttribute('data-dir'));
+      if (oracleCount < 1) oracleCount = 1;
+      act({ type: 'set-oracle', value: oracleCount });
+      return;
+    }
     if (type === 'nach') {
       var next = (state.nachUses || 1) + Number(el.getAttribute('data-dir'));
       if (next < 1) next = 1;
@@ -2258,6 +2306,15 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       return;
     }
     if (type === 'wolf-attack-no') { confirmWolfId = 0; render(); return; }
+    if (type === 'oracle-info') {
+      oracleInfo = !oracleInfo;
+      render();
+      return;
+    }
+    if (type === 'oracle-role') {
+      act({ type: 'oracle-role', index: Number(el.getAttribute('data-index')) });
+      return;
+    }
     if (type === 'select') {
       var pickedId = Number(el.getAttribute('data-id'));
       var view = W.view(ui());
@@ -2276,6 +2333,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       act({ type: type, id: Number(el.getAttribute('data-id')) });
       return;
     }
+    if (type === 'ack') oracleInfo = false;
     act({ type: type });
   });
 
@@ -2509,6 +2567,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       if (savedSetup && savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));
       if (savedSetup && savedSetup.nachUses != null) state.nachUses = savedSetup.nachUses;
       if (savedSetup && savedSetup.osirisUses != null) state.osirisUses = savedSetup.osirisUses;
+      if (savedSetup && savedSetup.oracleCount != null) state.oracleCount = savedSetup.oracleCount;
       if (savedSetup && savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
       if (savedSetup && savedSetup.wolfMin != null) state.wolfMin = savedSetup.wolfMin;
       if (savedSetup && savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;

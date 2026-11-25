@@ -194,6 +194,48 @@ input::placeholder, textarea::placeholder { color: var(--faint); }
   gap: 12px;
 }
 .choice.selected { box-shadow: inset 0 0 0 2px var(--accent); background: #1C2414; }
+.oracle-roles { display: flex; flex-wrap: wrap; gap: 8px; }
+.oracle-roles .choice {
+  width: 72px;
+  height: 72px;
+  flex: 0 0 72px;
+  font-size: 32px;
+}
+.oracle-read {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 8px 0 16px;
+}
+.oracle-sign {
+  margin: 0;
+  font-size: 48px;
+  line-height: 1;
+}
+.oracle-icon {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 96px;
+  line-height: 1;
+}
+.oracle-read .info-btn {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #a1a1aa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.oracle-read .info-btn svg { width: 28px; height: 28px; display: block; }
+.oracle-read .info-btn[aria-expanded="true"] { color: var(--accent); }
 .choice.seen { color: var(--faint); }
 .choice.done, .choice:disabled { opacity: 0.42; pointer-events: none; }
 .choice.dead, .player.dead { color: var(--faint); }

@@ -95,7 +95,7 @@ function playNarrator(state, decide) {
 
 test('Aufrufreihenfolge ist fest und dokumentiert', function () {
   assert.deepStrictEqual(W.NARRATOR_CALL_ORDER, [
-    'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'werwolf',
+    'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'wahrsager', 'werwolf',
     'hexe', 'schaufel', 'osiris'
   ]);
   ['jaeger', 'russe', 'politiker', 'dorfbewohner'].forEach(function (role) {
