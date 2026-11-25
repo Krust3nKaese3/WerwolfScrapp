@@ -14,12 +14,13 @@
     nutte: 'Gastgeberin',
     russe: 'Russe',
     politiker: 'Politiker',
-    schaufel: 'Schaufel'
+    schaufel: 'Schaufel',
+    osiris: 'Osiris'
   };
 
   var ROLE_ORDER = [
     'werwolf', 'dorfbewohner', 'hexe', 'seherin', 'amor', 'jaeger',
-    'waschbaer', 'nachahmerin', 'nutte', 'russe', 'politiker', 'schaufel'
+    'waschbaer', 'nachahmerin', 'nutte', 'russe', 'politiker', 'schaufel', 'osiris'
   ];
 
   /* Erzählermodus: feste Aufrufreihenfolge, einmal pro möglicher Karte.
@@ -35,12 +36,13 @@
      Tot oder nicht im Spiel bleibt der Aufruf stumm und zeigt kein Opfer.
      Außerhalb des Erzählermodus heilt sie weiter blind. Der Modus gilt zum Zeitpunkt ihres Aufrufs.
      Schaufel holt nur Personen zurück, die schon als tot gelten.
+     Osiris kann nachts nur auslösen, wenn schon jemand tot ist. Wer es war, bleibt verdeckt. Am Morgen stimmt das Dorf ab.
      Jäger, Russe, Politiker und Dorfbewohner haben nachts keine eigene Aktion und werden nicht gerufen.
      Der Jäger schießt erst, wenn er stirbt. Der Russe duelliert am Tag.
      Kopiert die Nachahmerin eine Rolle mit Nachtaktion, läuft diese Aktion in ihrem Aufruf, nicht als eigene Karte. */
   var NARRATOR_CALL_ORDER = [
     'amor', 'waschbaer', 'nachahmerin', 'nutte', 'seherin', 'werwolf',
-    'hexe', 'schaufel'
+    'hexe', 'schaufel', 'osiris'
   ];
 
   var CAUSE_LABEL = {
@@ -85,7 +87,7 @@
     counts.werwolf = n >= 16 ? 4 : n >= 11 ? 3 : n >= 7 ? 2 : 1;
     var order = [
       ['seherin', 5], ['hexe', 6], ['jaeger', 7], ['amor', 7], ['nutte', 7],
-      ['waschbaer', 8], ['nachahmerin', 8], ['politiker', 9], ['schaufel', 9], ['russe', 10]
+      ['waschbaer', 8], ['nachahmerin', 8], ['politiker', 9], ['schaufel', 9], ['russe', 10], ['osiris', 11]
     ];
     order.forEach(function (pair) {
       if (n < pair[1]) return;
@@ -239,6 +241,7 @@
       schaufelUsed: false,
       russeUsed: false,
       hunterShot: false,
+      osirisLeft: role === 'osiris' ? (arguments[5] == null ? 1 : arguments[5]) : 0,
       loverIds: [],
       notice: null
     };
@@ -253,6 +256,7 @@
     player.schaufelUsed = false;
     player.russeUsed = false;
     player.hunterShot = false;
+    player.osirisLeft = role === 'osiris' ? (arguments[4] == null ? 1 : arguments[4]) : 0;
   }
 
   function makeVillager(player) {
@@ -263,6 +267,7 @@
     player.nachLeft = 0;
     player.schaufelUsed = false;
     player.russeUsed = false;
+    player.osirisLeft = 0;
   }
 
   function shuffle(list, rng) {
@@ -356,11 +361,13 @@
     return {
       counts: counts,
       nachUses: 1,
+      osirisUses: 1,
       healPotions: 2,
       rolePool: true,
       seerExact: false,
       showWolfAction: false,
       quickAmor: true,
+      legacyWitch: true,
       wolfMin: wolves,
       wolfMax: wolves
     };
@@ -371,11 +378,13 @@
     return {
       counts: state.counts || defaultCounts(state.players.length),
       nachUses: state.nachUses == null ? 1 : state.nachUses,
+      osirisUses: state.osirisUses == null ? 1 : state.osirisUses,
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
       showWolfAction: !!state.showWolfAction,
       quickAmor: state.quickAmor !== false,
+      legacyWitch: state.legacyWitch !== false,
       wolfMin: state.wolfMin == null ? wolves : state.wolfMin,
       wolfMax: state.wolfMax == null ? wolves : state.wolfMax
     };
@@ -384,11 +393,13 @@
   function applySetup(state, config) {
     state.counts = config.counts;
     state.nachUses = config.nachUses;
+    state.osirisUses = config.osirisUses == null ? 1 : config.osirisUses;
     state.healPotions = config.healPotions;
     state.rolePool = !!config.rolePool;
     state.seerExact = !!config.seerExact;
     state.showWolfAction = !!config.showWolfAction;
     state.quickAmor = config.quickAmor !== false;
+    state.legacyWitch = config.legacyWitch !== false;
     state.wolfMin = config.wolfMin;
     state.wolfMax = config.wolfMax;
     state.confirmUndoDeal = false;
@@ -428,6 +439,7 @@
     var rng = opts.rng || Math.random;
     var nachUses = opts.nachUses || 1;
     var healPotions = opts.healPotions == null ? 2 : opts.healPotions;
+    var osirisUses = opts.osirisUses == null ? 1 : opts.osirisUses;
     var rolePool = !!opts.rolePool;
     var wolfMin = opts.wolfMin == null ? (counts.werwolf || 1) : opts.wolfMin;
     var wolfMax = opts.wolfMax == null ? wolfMin : opts.wolfMax;
@@ -443,9 +455,9 @@
     var bag = rolePool ? dealFromPool(counts, wolfMin, wolfMax, names.length, rng) : exactBag(counts);
     shuffle(bag, rng);
     var players = names.map(function (name, i) {
-      return makePlayer(i + 1, name, bag[i], nachUses, healPotions);
+      return makePlayer(i + 1, name, bag[i], nachUses, healPotions, osirisUses);
     });
-    var state = freshPlaying(players, counts, nachUses, healPotions, opts.log || []);
+    var state = freshPlaying(players, counts, nachUses, healPotions, opts.log || [], osirisUses);
     state.dealt = {};
     state.players.forEach(function (player) { state.dealt[player.id] = player.role; });
     state._rng = rng;
@@ -456,6 +468,7 @@
     state.selfTell = !!opts.selfTell;
     state.showWolfAction = !!opts.showWolfAction;
     state.quickAmor = opts.quickAmor !== false;
+    state.legacyWitch = opts.legacyWitch !== false;
     state.config.rolePool = rolePool;
     state.config.selfTell = state.selfTell;
     state.config.showWolfAction = state.showWolfAction;
@@ -463,11 +476,12 @@
     state.config.wolfMin = wolfMin;
     state.config.wolfMax = wolfMax;
     state.config.seerExact = state.seerExact;
+    state.config.legacyWitch = state.legacyWitch !== false;
     note(state, 'Rollen verteilt');
     return state;
   }
 
-  function freshPlaying(players, counts, nachUses, healPotions, log) {
+  function freshPlaying(players, counts, nachUses, healPotions, log, osirisUses) {
     return {
       v: 1,
       screen: 'reveal',
@@ -476,6 +490,7 @@
       nextId: players.length + 1,
       counts: counts,
       nachUses: nachUses,
+      osirisUses: osirisUses == null ? 1 : osirisUses,
       healPotions: healPotions,
       config: { counts: counts, nachUses: nachUses, healPotions: healPotions },
       revealed: {},
@@ -587,12 +602,14 @@
       fresh = createGame(names, state.counts, {
       rng: rng,
       nachUses: state.nachUses,
+      osirisUses: state.osirisUses == null ? 1 : state.osirisUses,
       healPotions: state.healPotions == null ? 2 : state.healPotions,
       rolePool: !!state.rolePool,
       seerExact: !!state.seerExact,
       selfTell: !!state.selfTell,
       showWolfAction: !!state.showWolfAction,
       quickAmor: state.quickAmor !== false,
+      legacyWitch: state.legacyWitch !== false,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       log: state.log
@@ -1364,6 +1381,7 @@
     if (role === 'waschbaer') return 'waschbaer';
     if (role === 'nutte') return 'nutte';
     if (role === 'schaufel') return 'schaufel';
+    if (role === 'osiris') return 'osiris';
     if (role === 'nachahmerin') return 'nachahmerin';
     return null;
   }
@@ -1389,6 +1407,9 @@
     if (player.role === 'werwolf') return { kind: 'wolf', target: 'house' };
     if (player.role === 'schaufel' && !player.schaufelUsed && revealedDead(state).length) {
       return { kind: 'schaufel', target: 'person', forced: false };
+    }
+    if (player.role === 'osiris' && player.osirisLeft > 0 && revealedDead(state).length) {
+      return { kind: 'osiris', target: 'none', forced: false };
     }
     return null;
   }
@@ -1425,9 +1446,19 @@
     return [victimInfo(state, victims)];
   }
 
+  function legacyWitch(state) {
+    return !state || state.legacyWitch !== false;
+  }
+
+  function revivePrompt(source, left) {
+    return { kind: 'revive', source: source, target: 'person', healsLeft: left };
+  }
+
   function hexePrompts(state, player) {
     var list = [];
-    if (player.role === 'hexe' && narratorHexCall(state)) list = reactiveWitchPrompts(state, player);
+    if (player.role === 'hexe' && !legacyWitch(state)) {
+      if (player.healsLeft > 0 && revealedDead(state).length) list.push(revivePrompt('role', player.healsLeft));
+    } else if (player.role === 'hexe' && narratorHexCall(state)) list = reactiveWitchPrompts(state, player);
     else if (player.role === 'hexe' && player.healsLeft > 0) list.push(healPrompt('role', player.healsLeft));
     if (player.role === 'hexe' && player.poisonLeft) list.push({ kind: 'poison', source: 'role', target: 'house' });
     return list;
@@ -1597,18 +1628,30 @@
     else if (state.resolution === 'duel') finishDuelAftermath(state);
   }
 
+  function revivePerson(state, id) {
+    var p = playerById(state, id);
+    if (!p || p.alive) return null;
+    p.alive = true;
+    p.hunterShot = false;
+    return p;
+  }
+
   function finishMorning(state) {
     state.revived = [];
     (state.pendingRevives || []).forEach(function (id) {
-      var p = playerById(state, id);
-      if (!p || p.alive) return;
-      p.alive = true;
+      var p = revivePerson(state, id);
+      if (!p) return;
       p.loverIds = [];
-      p.hunterShot = false;
       state.revived.push({ id: p.id, name: p.name });
       note(state, 'Wiederbelebt ' + p.name);
     });
     state.pendingRevives = [];
+    var osiris = !!state.osirisMorning && deadPlayers(state).length > 0 && living(state).length > 0;
+    state.osirisMorning = false;
+    presentMorning(state, osiris);
+  }
+
+  function presentMorning(state, thenOsiris) {
     var mayor = playerById(state, state.mayorId);
     if (!mayor || !mayor.alive) {
       var seed = state.mayorId || state.players[0].id;
@@ -1619,7 +1662,7 @@
       if (nextMayor) state.mayorId = nextMayor;
     }
     note(state, 'Bürgermeister jetzt ' + (playerById(state, state.mayorId) || {}).name);
-    var win = checkWin(state);
+    var win = thenOsiris ? '' : checkWin(state);
     state.day += 1;
     var lines = [];
     if (!state.obit.length) lines.push('Niemand ist in der Nacht gestorben.');
@@ -1629,17 +1672,17 @@
     state.revived.forEach(function (row) {
       lines.push(row.name + ' ist wieder im Dorf.');
     });
-    var voteFirst = !!(state.counts && state.counts.russe);
     state.announce = {
       title: '🌅 Tag ' + state.day,
       lines: lines,
-      button: win ? 'Ergebnis' : (voteFirst ? 'Abstimmung' : 'Diskussion'),
-      then: win ? 'end' : (voteFirst ? 'vote' : 'discuss')
+      button: thenOsiris ? 'Weiter' : (win ? 'Ergebnis' : 'Abstimmung'),
+      then: thenOsiris ? 'osiris-said' : (win ? 'end' : 'vote')
     };
     setScreen(state, 'announce');
   }
 
   function finishVote(state) {
+    if (state.voteKind === 'osiris') return finishOsirisVote(state);
     var result = resolveBallot(state);
     var lines = tallyLines(state, result.scores);
     if (result.type === 'tie') {
@@ -1661,6 +1704,24 @@
     state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'apply-vote' };
     setScreen(state, 'announce');
     note(state, 'Verurteilt ' + target.name);
+  }
+
+  function finishOsirisVote(state) {
+    var result = resolveBallot(state);
+    state.voteKind = '';
+    state.votes = {};
+    state.voteDone = [];
+    state.pendingOsiris = 0;
+    if (result.type === 'player') {
+      var person = revivePerson(state, result.id);
+      if (person) {
+        state.pendingOsiris = person.id;
+        note(state, 'Osiris holt ' + person.name + ' zurück');
+      }
+    } else if (result.type === 'none') note(state, 'Osiris Niemand');
+    else note(state, 'Osiris Gleichstand');
+    state.announce = { title: 'Abstimmung', lines: [], button: 'Weiter', then: 'osiris-day' };
+    setScreen(state, 'announce');
   }
 
   function deathLine(state, row) {
@@ -1723,12 +1784,11 @@
     var win = checkWin(state);
     var lines = state.obit.map(function (row) { return deathLine(state, row); });
     if (!lines.length) lines.push(state.showWolfAction ? 'Das Duell endet ohne Toten.' : 'Niemand ist gestorben.');
-    var backToVote = !!(state.counts && state.counts.russe);
     state.announce = {
       title: state.showWolfAction ? 'Duell vorbei' : 'Am Tag',
       lines: lines,
-      button: win ? 'Ergebnis' : (backToVote ? 'Zurück zur Abstimmung' : 'Zurück zur Diskussion'),
-      then: win ? 'end' : (backToVote ? 'vote-keep' : 'discuss')
+      button: win ? 'Ergebnis' : 'Zurück zur Abstimmung',
+      then: win ? 'end' : 'vote-keep'
     };
     state.duel = null;
     setScreen(state, 'announce');
@@ -1805,7 +1865,7 @@
         return;
       }
       var optional = {
-        steal: true, copy: true, heal: true, poison: true, schaufel: true,
+        steal: true, copy: true, heal: true, poison: true, schaufel: true, revive: true, osiris: true,
         wolf: true, seer: true
       };
       if (optional[prompt.kind]) {
@@ -1837,12 +1897,12 @@
 
   function consumePotion(state, player, prompt) {
     if (prompt.source === 'role') {
-      if (prompt.kind === 'heal' && player.healsLeft > 0) player.healsLeft -= 1;
+      if ((prompt.kind === 'heal' || prompt.kind === 'revive') && player.healsLeft > 0) player.healsLeft -= 1;
       if (prompt.kind === 'poison') player.poisonLeft = false;
     } else {
       var copy = copyKit(state, player.id);
       if (!copy) return;
-      if (prompt.kind === 'heal' && copy.healsLeft > 0) copy.healsLeft -= 1;
+      if ((prompt.kind === 'heal' || prompt.kind === 'revive') && copy.healsLeft > 0) copy.healsLeft -= 1;
       if (prompt.kind === 'poison') copy.poison = false;
     }
   }
@@ -1851,7 +1911,12 @@
     if (prompt.kind === 'vote') {
       var voteId = chosenId(state, action);
       if (voteId == null) return 'Wähle eine Person oder Niemand.';
-      if (voteId !== 0 && !livingTarget(state, voteId)) return 'Diese Person stimmt nicht.';
+      if (state.voteKind === 'osiris') {
+        if (voteId !== 0) {
+          var dead = playerById(state, voteId);
+          if (!dead || dead.alive) return 'Wähle eine tote Person oder Niemand.';
+        }
+      } else if (voteId !== 0 && !livingTarget(state, voteId)) return 'Diese Person stimmt nicht.';
       state.votes[player.id] = voteId === 0 ? 0 : voteId;
       return [];
     }
@@ -1964,6 +2029,27 @@
       note(state, 'Diebstahl geplant von ' + player.name + ' an ' + victim.name);
       return [];
     }
+    if (prompt.kind === 'osiris') {
+      if (prompt.source !== 'copy' && player.osirisLeft > 0) player.osirisLeft -= 1;
+      state.osirisMorning = true;
+      note(state, 'Osiris hat für den Morgen ausgelöst');
+      return [];
+    }
+    if (prompt.kind === 'revive') {
+      var raisedId = chosenId(state, action);
+      var raised = playerById(state, raisedId);
+      if (!raised || raised.alive) return 'Wähle eine tote Person.';
+      if (Array.isArray(state.shownDead) && state.shownDead.indexOf(raised.id) < 0) {
+        return 'Diese Person gilt diese Nacht noch nicht als tot.';
+      }
+      if (state.pendingRevives.indexOf(raised.id) >= 0) return 'Diese Person wird schon zurückgeholt.';
+      state.pendingRevives.push(raised.id);
+      consumePotion(state, player, prompt);
+      var reviveLeft = prompt.source === 'role' ? player.healsLeft : (copyKit(state, player.id) || {}).healsLeft || 0;
+      var moreDead = revealedDead(state).some(function (p) { return state.pendingRevives.indexOf(p.id) < 0; });
+      if (reviveLeft > 0 && moreDead) return [revivePrompt(prompt.source, reviveLeft)];
+      return [];
+    }
     if (prompt.kind === 'schaufel') {
       var deadId = chosenId(state, action);
       var dead = playerById(state, deadId);
@@ -2021,6 +2107,10 @@
       return [{ kind: 'steal', target: 'person', forced: true }];
     }
     if (ability === 'nutte') return [{ kind: 'nutte', target: 'house', forced: true }];
+    if (ability === 'osiris') {
+      if (!revealedDead(state).length) return [{ kind: 'info', text: 'Es liegt niemand tot da. Der Einsatz verpufft.' }];
+      return [{ kind: 'osiris', source: 'copy', forced: false }];
+    }
     if (ability === 'schaufel') {
       if (!revealedDead(state).length) {
         return [{ kind: 'info', text: 'Es liegt niemand tot da. Der Einsatz verpufft.' }];
@@ -2031,7 +2121,11 @@
       var charges = state.healPotions || 2;
       state.copyHexes = (state.copyHexes || []).filter(function (c) { return c.actorId !== player.id; });
       state.copyHexes.push({ actorId: player.id, healsLeft: charges, poison: true });
-      return [healPrompt('copy', charges), { kind: 'poison', source: 'copy', target: 'house' }];
+      var copied = legacyWitch(state) || !revealedDead(state).length
+        ? [healPrompt('copy', charges)]
+        : [revivePrompt('copy', charges)];
+      if (!legacyWitch(state) && !revealedDead(state).length) copied = [];
+      return copied.concat([{ kind: 'poison', source: 'copy', target: 'house' }]);
     }
     if (ability === 'nachahmerin') {
       return [{ kind: 'copy', target: 'person', depth: depth + 1, forced: true }];
@@ -2221,6 +2315,20 @@
       state.wolfMax = nextMax;
       if (!isInt(state.wolfMin) || state.wolfMin > nextMax) state.wolfMin = nextMax;
       state.error = '';
+      return;
+    }
+    if (action.type === 'set-osiris') {
+      var uses = Math.floor(Number(action.value));
+      if (!isFinite(uses) || uses < 1) uses = 1;
+      if (uses > 5) uses = 5;
+      state.osirisUses = uses;
+      state.error = '';
+      return;
+    }
+    if (action.type === 'toggle-legacy-witch') {
+      state.legacyWitch = state.legacyWitch === false;
+      state.error = '';
+      note(state, 'Legacy-Hexe ' + (state.legacyWitch === false ? 'aus' : 'an'));
       return;
     }
     if (action.type === 'toggle-seer') {
@@ -2524,11 +2632,7 @@
   }
 
   function backToDay(state) {
-    if (state.counts && state.counts.russe) {
-      openVote(state, false);
-      return;
-    }
-    setScreen(state, 'discuss');
+    openVote(state, false);
   }
 
   function discussSend(state, action) {
@@ -2553,9 +2657,27 @@
     if (then === 'end') setScreen(state, 'end');
     else if (then === 'night') beginNight(state);
     else if (then === 'apply-vote') applyCondemn(state);
+    else if (then === 'osiris-said') {
+      state.voteKind = 'osiris';
+      state.announce = {
+        title: 'Osiris',
+        lines: ['Osiris hat gesprochen. Das Dorf stimmt ab, welche verstorbene Person ins Leben zurückkehrt.'],
+        button: 'Abstimmung',
+        then: 'osiris-vote'
+      };
+      setScreen(state, 'announce');
+      note(state, 'Osiris-Abstimmung');
+    }
+    else if (then === 'osiris-vote') openVote(state, true);
+    else if (then === 'osiris-day') {
+      state.pendingOsiris = 0;
+      var osirisWin = checkWin(state);
+      if (osirisWin) setScreen(state, 'end');
+      else if (!openForcedDuel(state)) openVote(state, true);
+    }
     else if (then === 'vote') { if (!openForcedDuel(state)) openVote(state, true); }
     else if (then === 'vote-keep') { if (!openForcedDuel(state)) openVote(state, false); }
-    else if (!openForcedDuel(state)) setScreen(state, 'discuss');
+    else if (!openForcedDuel(state)) openVote(state, true);
   }
 
   function openForcedDuel(state) {
@@ -2948,7 +3070,7 @@
     });
   }
 
-  function report(state, description) {
+  function report(state, description, guestActions) {
     var copy = {};
     Object.keys(state).forEach(function (key) {
       if (key === '_rng') return;
@@ -2979,6 +3101,11 @@
       JSON.stringify(copy, null, 2),
       '```',
       '',
+      '## Mitspieler-Aktionen',
+      (guestActions && guestActions.length) ? guestActions.map(function (row) {
+        return '- ' + new Date(row.t).toISOString() + ' ' + row.from + ' ' + row.action + ' → ' + row.result;
+      }).join('\n') : '(keine)',
+      '',
       '## Ablauf',
       (state.log || []).map(function (entry) {
         return '- ' + new Date(entry.t).toISOString() + ' ' + entry.m;
@@ -2999,7 +3126,12 @@
 
   function targetsFor(state, prompt, selfId) {
     if (!prompt) return [];
-    if (prompt.kind === 'schaufel') return revealedDead(state);
+    if (prompt.kind === 'schaufel' || prompt.kind === 'revive') {
+      if (prompt.kind === 'schaufel') return revealedDead(state);
+      var waiting = {};
+      (state.pendingRevives || []).forEach(function (id) { waiting[id] = true; });
+      return revealedDead(state).filter(function (p) { return !waiting[p.id]; });
+    }
     if (prompt.kind === 'amor') return living(state);
     if (prompt.kind === 'seer' || prompt.kind === 'copy') {
       return living(state).filter(function (p) { return p.id !== selfId; });
@@ -3018,6 +3150,7 @@
     if (prompt.kind === 'nutte' || prompt.kind === 'steal' || prompt.kind === 'kill' || prompt.kind === 'poison') {
       return living(state).filter(function (p) { return p.id !== selfId; });
     }
+    if (prompt.kind === 'vote' && state.voteKind === 'osiris') return deadPlayers(state);
     if (prompt.kind === 'vote' || prompt.kind === 'hunter') return living(state);
     return living(state);
   }

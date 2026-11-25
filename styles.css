@@ -243,13 +243,14 @@ h2 .crown { margin-right: 6px; }
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.name-grid .mayor-mark {
+.name-grid .mayor-mark,
+.mayor-mark {
   display: inline;
   margin-right: 4px;
-  font-size: 0.72em;
-  opacity: 0.7;
-  filter: grayscale(0.35);
-  vertical-align: 0.05em;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 1;
+  vertical-align: -0.05em;
 }
 .name-grid .votes {
   position: absolute;
@@ -288,13 +289,12 @@ h2 .crown { margin-right: 6px; }
   flex-basis: 8px;
   width: 8px;
 }
-.mayor-mark {
+.rank .mayor-mark {
   display: inline;
   margin-right: 4px;
-  font-size: 0.72em;
-  opacity: 0.7;
-  filter: grayscale(0.35);
-  vertical-align: 0.05em;
+  font-size: 16px;
+  line-height: 1;
+  vertical-align: -0.05em;
 }
 .name-grid .choice .meta {
   position: absolute;

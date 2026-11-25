@@ -55,7 +55,25 @@
   }
 
   var wakeHeld = false;
-  var holdPublish = false;
+    var actionLog = [];
+    var reportWait = null;
+
+    function actionBrief(action) {
+      action = action || {};
+      var bits = [String(action.type || '?')];
+      ['id', 'role', 'value', 'name', 'first', 'last', 'tag', 'pid'].forEach(function (key) {
+        if (action[key] != null && action[key] !== '') bits.push(key + '=' + action[key]);
+      });
+      return bits.join(' ').slice(0, 240);
+    }
+
+    function trace(from, action, result) {
+      if (!from || from === selfId) return;
+      actionLog.push({ t: Date.now(), from: String(from).slice(0, 12), action: actionBrief(action), result: String(result || '') });
+      if (actionLog.length > 200) actionLog.splice(0, actionLog.length - 200);
+    }
+
+    var holdPublish = false;
 
   function bridgeObject() {
     return root.OpenScrBridge || root.EveryAppBridge || null;
@@ -131,6 +149,7 @@
     p.stealUsed = false;
     p.nachLeft = 0;
     p.schaufelUsed = false;
+    p.osirisLeft = 0;
     p.russeUsed = false;
     p.hunterShot = false;
     p.amorPair = null;
@@ -195,6 +214,11 @@
     if (!ended && copy.screen === 'reveal' && W && W.pendingNames) pending = W.pendingNames(state).slice();
     var done = finishedIds(state);
     stripBag(copy, false);
+    copy.russePossible = !!(state.counts && state.counts.russe);
+    if (copy.screen === 'night') delete copy.osirisMorning;
+    if (copy.screen === 'announce' && copy.announce && copy.announce.title === 'Abstimmung') {
+      copy.lastTally = clone(state.lastTally || {});
+    }
     if (!ended) {
       (copy.players || []).forEach(blankSeat);
       if (copy.screen !== 'lobby') delete copy.counts;
@@ -316,8 +340,8 @@
   var GUEST_GLOBAL = {
     'start-game': 1, ack: 1, 'to-vote': 1, 'to-duel': 1, cancel: 1,
     'add-name': 1, 'add-player': 1, deal: 1,
-    'set-count': 1, 'set-nach': 1, 'set-heals': 1, 'set-wolf-min': 1, 'set-wolf-max': 1,
-    'toggle-seer': 1, 'toggle-wolf-action': 1, 'toggle-quick-amor': 1, 'toggle-self-tell': 1,
+    'set-count': 1, 'set-nach': 1, 'set-osiris': 1, 'set-heals': 1, 'set-wolf-min': 1, 'set-wolf-max': 1,
+    'toggle-seer': 1, 'toggle-wolf-action': 1, 'toggle-quick-amor': 1, 'toggle-self-tell': 1, 'toggle-legacy-witch': 1,
     'toggle-pool': 1, suggest: 1
   };
 
@@ -336,6 +360,23 @@
     var lastPub = null;
     var holding = false;
     var qrPayload = '';
+    var actionLog = [];
+    var reportWait = null;
+
+    function actionBrief(action) {
+      action = action || {};
+      var bits = [String(action.type || '?')];
+      ['id', 'role', 'value', 'name', 'first', 'last', 'tag', 'pid'].forEach(function (key) {
+        if (action[key] != null && action[key] !== '') bits.push(key + '=' + action[key]);
+      });
+      return bits.join(' ').slice(0, 240);
+    }
+
+    function trace(from, action, result) {
+      if (!from || from === selfId) return;
+      actionLog.push({ t: Date.now(), from: String(from).slice(0, 12), action: actionBrief(action), result: String(result || '') });
+      if (actionLog.length > 200) actionLog.splice(0, actionLog.length - 200);
+    }
 
     function auth() { return hooks.getState(); }
 
@@ -465,7 +506,8 @@
         return;
       }
       if (role !== 'host') return;
-      if (auth().selfTell && deviceId !== selfId && auth().screen !== 'lobby') {
+      if (auth().selfTell && deviceId !== selfId && auth().screen !== 'lobby' && action.type !== 'to-duel') {
+        trace(deviceId, action, 'abgelehnt, Erzähler');
         done();
         return;
       }
@@ -474,10 +516,12 @@
           var game = auth();
           if (!game) return;
           if (!info) {
+            trace(deviceId, action, 'abgelehnt, ' + ((error && error.message) || 'nicht gespeichert'));
             game.error = (error && error.message) || 'Der Name konnte nicht gespeichert werden.';
             done();
             return;
           }
+          trace(deviceId, action, 'angewandt');
           hooks.apply(game, {
             type: 'add-player',
             pid: info.pid,
@@ -496,14 +540,20 @@
         return;
       }
       if (CLAIM[action.type]) {
+        trace(deviceId, action, 'Anspruch');
         claim(deviceId, action.id);
         return;
       }
       if (TURN[action.type] && deviceSeat[deviceId] != null) {
+        trace(deviceId, action, 'Zug');
         pushTurn(deviceId, action);
         return;
       }
-      if (deviceId !== selfId && !GUEST_GLOBAL[action.type]) return;
+      if (deviceId !== selfId && !GUEST_GLOBAL[action.type]) {
+        trace(deviceId, action, 'abgelehnt, nicht erlaubt');
+        return;
+      }
+      trace(deviceId, action, 'angewandt');
       var before = auth().screen;
       hooks.apply(auth(), action);
       if (auth().screen !== before) {
@@ -523,6 +573,19 @@
           done();
         } else if (data.t === 'phase') onLocal(message.from, data.action || {});
         else if (data.t === 'hello') done();
+        else if (data.t === 'bug') {
+          var text = root.Werwolf && root.Werwolf.report
+            ? root.Werwolf.report(auth(), data.description || '', actionLog.slice())
+            : '';
+          sendTo(message.from, { t: 'bug-report', text: text });
+        }
+        return;
+      }
+      if (data.t === 'bug-report' && reportWait) {
+        clearTimeout(reportWait.timer);
+        var doneWait = reportWait.resolve;
+        reportWait = null;
+        doneWait(String(data.text || ''));
         return;
       }
       if (data.t === 'pub') {
@@ -699,6 +762,18 @@
         });
       },
       local: function (action) { onLocal(selfId, action); },
+      guestActions: function () { return actionLog.slice(); },
+      requestReport: function (description) {
+        return new Promise(function (resolve) {
+          if (role !== 'guest' || !mp) { resolve(''); return; }
+          if (reportWait) clearTimeout(reportWait.timer);
+          reportWait = {
+            resolve: resolve,
+            timer: setTimeout(function () { reportWait = null; resolve(''); }, 4000)
+          };
+          mp.send({ t: 'bug', description: String(description || '').slice(0, 2000) });
+        });
+      },
       actFrom: function (deviceId, action) { onLocal(deviceId, action); },
       display: function () {
         if (role !== 'host') return null;
@@ -991,6 +1066,10 @@
     role: function () { return live ? live.role() : 'off'; },
     display: function () { return live ? live.display() : null; },
     local: function (action) { if (live) live.local(action); },
+    guestActions: function () { return live && live.guestActions ? live.guestActions() : []; },
+    requestReport: function (description) {
+      return live && live.requestReport ? live.requestReport(description) : Promise.resolve('');
+    },
     roomInfo: function () { return live ? live.roomInfo() : null; },
     rooms: function () { return live ? live.rooms() : []; },
     lockOwner: function (id) { return live ? live.lockOwner(id) : null; },

@@ -24,6 +24,7 @@
   var explainWolf = false;
   var explainAmor = false;
   var explainTell = false;
+  var explainLegacy = false;
   var confirmWolfId = 0;
   var uiJoin = false;
   var mpError = '';
@@ -120,9 +121,9 @@
   var saveQueue = Promise.resolve();
 
   function setupActions(type) {
-    return type === 'set-count' || type === 'set-nach' || type === 'set-heals' || type === 'set-wolf-min' ||
+    return type === 'set-count' || type === 'set-nach' || type === 'set-osiris' || type === 'set-heals' || type === 'set-wolf-min' ||
       type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-quick-amor' ||
-      type === 'toggle-self-tell' || type === 'toggle-pool' || type === 'suggest' ||
+      type === 'toggle-self-tell' || type === 'toggle-legacy-witch' || type === 'toggle-pool' || type === 'suggest' ||
       type === 'undo-deal' || type === 'to-setup';
   }
 
@@ -131,6 +132,7 @@
     if (!savedSetup || typeof savedSetup !== 'object') savedSetup = { v: 1 };
     if (state.counts) savedSetup.counts = JSON.parse(JSON.stringify(state.counts));
     if (state.nachUses != null) savedSetup.nachUses = state.nachUses;
+    if (state.osirisUses != null) savedSetup.osirisUses = state.osirisUses;
     if (state.healPotions != null) savedSetup.healPotions = state.healPotions;
     if (state.rolePool != null) savedSetup.rolePool = !!state.rolePool;
     if (state.seerExact != null) savedSetup.seerExact = !!state.seerExact;
@@ -139,12 +141,14 @@
     if (state.wolfMin != null) savedSetup.wolfMin = state.wolfMin;
     if (state.wolfMax != null) savedSetup.wolfMax = state.wolfMax;
     savedSetup.selfTell = !!state.selfTell;
+    savedSetup.legacyWitch = state.legacyWitch !== false;
   }
 
   function applySavedSetup() {
     if (!savedSetup || !state) return;
     if (savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));
     if (savedSetup.nachUses != null) state.nachUses = savedSetup.nachUses;
+    if (savedSetup.osirisUses != null) state.osirisUses = savedSetup.osirisUses;
     if (savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
     if ('rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
     if ('seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
@@ -153,6 +157,7 @@
     if (savedSetup.wolfMin != null) state.wolfMin = savedSetup.wolfMin;
     if (savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
     if ('selfTell' in savedSetup) state.selfTell = !!savedSetup.selfTell;
+    if ('legacyWitch' in savedSetup) state.legacyWitch = savedSetup.legacyWitch !== false;
     state.error = '';
   }
 
@@ -369,7 +374,8 @@
     nutte: '💋',
     russe: '🎲',
     politiker: '🎤',
-    schaufel: '⛏️'
+    schaufel: '🪏',
+    osiris: '⚱️'
   };
 
   function roleIcon(role) {
@@ -426,7 +432,8 @@
     var place = order >= 0 && (state.selection || []).length > 1 ? 'Platz ' + (order + 1) : '';
     var note = [symbol ? '' : meta, place].filter(Boolean).join(' · ');
     return '<button type="button" class="choice' + (selected(id) ? ' selected' : '') + '" data-act="select" data-id="' + id + '">' +
-      icon(targetKind) + '<span><span class="who">' + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
+      (Number(id) ? crownMarks(label) : '') +
+      icon(targetKind) + '<span><span class="who">' + mayorMark(id) + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
       (symbol ? '<span class="meta">' + esc(meta) + '</span>' : '') +
       (note ? '<span class="sub">' + esc(note) + '</span>' : '') +
       '</span></button>';
@@ -437,11 +444,14 @@
     var text = {
       werwolf: 'Nachts wählt das Rudel gemeinsam ein Haus.',
       dorfbewohner: 'Du hast keine Sonderfähigkeit. Nachts schläfst du.',
-      hexe: state.selfTell
+      hexe: state.legacyWitch === false
         ? 'Du hast ' + (state.healPotions || (person && person.healsLeft) || 2) +
-          ' Heiltränke für das ganze Spiel. Wenn du nach den Wölfen aufgerufen wirst, siehst du die Opfer und kannst eines mit einem Heiltrank retten. Der Trank schützt in dieser Nacht das Haus, in dem das Opfer schläft. Mehrere Opfer darfst du heilen, solange Tränke übrig sind. Dazu einen Gifttrank.'
-        : 'Du hast ' + (state.healPotions || (person && person.healsLeft) || 2) +
-          ' Heiltränke für das ganze Spiel, in einer Nacht auch mehrere, jedes Haus nur einmal. Dazu einen Gifttrank. Du siehst nicht, wer angegriffen wird.',
+          ' Heiltränke für das ganze Spiel. Damit holst du eine schon tote Person zurück, keinen Schutz für ein Haus. Dazu einen Gifttrank.'
+        : (state.selfTell
+          ? 'Du hast ' + (state.healPotions || (person && person.healsLeft) || 2) +
+            ' Heiltränke für das ganze Spiel. Wenn du nach den Wölfen aufgerufen wirst, siehst du die Opfer und kannst eines mit einem Heiltrank retten. Der Trank schützt in dieser Nacht das Haus, in dem das Opfer schläft. Mehrere Opfer darfst du heilen, solange Tränke übrig sind. Dazu einen Gifttrank.'
+          : 'Du hast ' + (state.healPotions || (person && person.healsLeft) || 2) +
+            ' Heiltränke für das ganze Spiel, in einer Nacht auch mehrere, jedes Haus nur einmal. Dazu einen Gifttrank. Du siehst nicht, wer angegriffen wird.'),
       seherin: state.seerExact
         ? 'Nachts siehst du die genaue Rolle einer Person.'
         : 'Nachts siehst du nur Team Dorfbewohner oder Böse.',
@@ -454,7 +464,8 @@
       nutte: 'Jede Nacht schläfst du in einem anderen Haus. Dein eigenes Haus ist leer.',
       russe: 'Einmal am Tag darfst du ein Duell anfangen.',
       politiker: 'Du gewinnst nur, wenn die Abstimmung dich wählt. Sonst hast du keine Fähigkeit.',
-      schaufel: 'Einmal darfst du eine tote Person zurückholen. Liebe und verbrauchte Kräfte bleiben, wie sie waren.'
+      schaufel: 'Einmal darfst du eine tote Person zurückholen. Liebe und verbrauchte Kräfte bleiben, wie sie waren.',
+      osiris: 'Bis zu ' + (state.osirisUses || 1) + ' Mal im Spiel kannst du nachts auslösen, wenn schon jemand tot ist. Am Morgen stimmt das Dorf ab, wer zurückkehrt. Wer Osiris ist, bleibt verdeckt.'
     };
     return text[role] || '';
   }
@@ -587,9 +598,11 @@
       '<li>Werwölfe: Mehrheit, bei Gleichstand das Haus im Uhrzeigersinn ab dem Bürgermeister.</li>' +
       '<li>Abstimmung: Bürgermeister zählt 1,5. Gleichstand heißt, niemand stirbt.</li>' +
       '<li>Nach dem Aufdecken beginnt Nacht 1. Tag 1 folgt am Morgen. Das Amt dreht ab dem Ende von Nacht 2 jeden Morgen einen lebenden Sitz weiter und zusätzlich, wenn der Bürgermeister stirbt.</li>' +
-      '<li>' + (state.selfTell
+      '<li>' + (state.legacyWitch === false
+        ? 'Die Hexe hat ' + (state.healPotions || 2) + ' Heiltränke für das Spiel. Sie wirft einen Trank auf eine schon tote Person und holt sie am Morgen zurück. Ein Haus schützt sie damit nicht. Dazu einen Gifttrank.'
+        : (state.selfTell
         ? 'Die Hexe hat ' + (state.healPotions || 2) + ' Heiltränke für das Spiel. Im Erzählermodus sieht sie die Opfer der Werwölfe und kann eines davon retten. Ein Trank schützt in dieser Nacht das Haus des Opfers. Mehrere Opfer darf sie heilen, solange Tränke übrig sind. Gibt es kein Wolfsopfer, bleibt der Trank liegen. Dazu einen Gifttrank.'
-        : 'Die Hexe hat ' + (state.healPotions || 2) + ' Heiltränke für das Spiel. Sie schützt Häuser, ohne das Opfer zu kennen. Ein Trank hält in dieser Nacht jeden Tod in dem Haus auf.') + '</li>' +
+        : 'Die Hexe hat ' + (state.healPotions || 2) + ' Heiltränke für das Spiel. Sie schützt Häuser, ohne das Opfer zu kennen. Ein Trank hält in dieser Nacht jeden Tod in dem Haus auf.')) + '</li>' +
       '</ul></details>';
   }
 
@@ -645,8 +658,15 @@
       : 'Die Seherin sieht nur Team Dorfbewohner oder Böse.';
     return optionRow('toggle-pool', 'Mehr Rollen als Spieler: ' + (poolOn ? 'an' : 'aus'), poolOn, 'explain-pool', explainPool, poolExplain) +
       optionRow('toggle-seer', 'Seherin sieht genaue Rolle: ' + (state.seerExact ? 'an' : 'aus'), !!state.seerExact, 'explain-seer', explainSeer, seerExplain) +
+      optionRow('toggle-legacy-witch', 'Legacy-Hexe: ' + (state.legacyWitch !== false ? 'an' : 'aus'), state.legacyWitch !== false, 'explain-legacy', explainLegacy,
+        state.legacyWitch !== false
+          ? 'Der Heiltrank schützt in dieser Nacht ein Haus.'
+          : 'Der Heiltrank holt eine schon tote Person am Morgen zurück. Er schützt kein Haus.') +
       (problem ? '<div class="banner error">' + esc(problem) + '</div>' : '') +
       '<div class="card stack">' + rows +
+      '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('osiris')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
+      '<button type="button" class="icon-btn" data-act="osiris-uses" data-dir="-1" aria-label="weniger Osiris-Einsätze">−</button><strong>' + (state.osirisUses == null ? 1 : state.osirisUses) + '</strong>' +
+      '<button type="button" class="icon-btn" data-act="osiris-uses" data-dir="1" aria-label="mehr Osiris-Einsätze">+</button></span></div>' +
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('nachahmerin')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
       '<button type="button" class="icon-btn" data-act="nach" data-dir="-1" aria-label="weniger Einsätze">−</button><strong>' + state.nachUses + '</strong>' +
       '<button type="button" class="icon-btn" data-act="nach" data-dir="1" aria-label="mehr Einsätze">+</button></span></div>' +
@@ -707,6 +727,11 @@
     return '<span class="seat-crowns" aria-label="' + n + ' Kronen">' + html + '</span>';
   }
 
+  function mayorMark(id) {
+    if (Number(id) !== Number(state.mayorId)) return '';
+    return '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>';
+  }
+
   function nameButton(p, opts) {
     var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
     var locked = seatLocked(p.id);
@@ -715,7 +740,7 @@
       (disabled ? ' disabled' : '') + ' style="--name-size:' + font + 'px">' +
       (opts.crowns ? crownMarks(p.name) : '') +
       (locked ? '<span class="lock" aria-hidden="true">' + LOCK + '</span>' : '') +
-      '<span class="who">' + esc(p.name) + '</span><span class="meta">' +
+      '<span class="who">' + mayorMark(p.id) + esc(p.name) + '</span><span class="meta">' +
       esc(locked ? 'belegt' : opts.meta) + '</span></button>';
   }
 
@@ -806,7 +831,7 @@
         '</span>' + (badges.length ? '<span class="meta">' + esc(badges.join(' · ')) + '</span>' : '') + '</div>';
     }).join(''));
     var telling = !!state.selfTell && !state.remoteNarrator;
-    var russePossible = !!(state.counts && state.counts.russe);
+    var russePossible = !!(state.counts && state.counts.russe) || !!state.russePossible;
     var lead = state.remoteNarrator
       ? 'Der Erzähler hat das Host-Handy. Hier siehst du nur den Stand.'
       : (telling
@@ -817,7 +842,7 @@
       '<div class="stack">' +
       (lead ? '<p class="lead">' + lead + '</p>' : '') +
       (telling ? '<h2>Alle Rollen</h2><div class="stack">' + roleSheetRows() + '</div>' : list) +
-      (state.remoteNarrator || !russePossible ? '' : '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>') +
+      (russePossible ? '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' : '') +
       (state.remoteNarrator ? '' : '<button type="button" class="btn" data-act="to-vote">Zur Abstimmung</button>') +
       abortLink() + '</div>';
   }
@@ -829,7 +854,7 @@
       hero('📢', 'Ansage') +
       '<div class="stack">' +
       '<div class="card stack">' + announceLines(box.lines).map(statusLine).join('') + '</div>' +
-      '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button></div>';
+      (isGuest() || state.remote ? '' : '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button>') + '</div>';
   }
 
   function voteMarks(weight) {
@@ -845,24 +870,34 @@
     return '<span class="votes" aria-label="' + esc(spoken) + '">' + html + '</span>';
   }
 
+  function nobodyVoteCard(weight) {
+    var font = window.WerwolfNet ? window.WerwolfNet.nameSize('Niemand') : 18;
+    return '<div class="choice" data-id="0" style="--name-size:' + font + 'px">' +
+      voteMarks(weight) +
+      '<span class="who-block"><span class="who">' + icon('person') + esc('Niemand') + '</span></span></div>';
+  }
+
   function renderVoteBoard(box) {
     var tally = state.lastTally || {};
     var condemned = Number(state.pendingCondemn);
     var list = nameGrid(sortedSeats().map(function (p) {
       var mayor = p.id === state.mayorId && p.alive;
       var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
+      var raised = Number(state.pendingOsiris) === p.id;
       var shift = p.id === condemned && p.alive
         ? '<span class="card-status" aria-label="gestorben"><span class="before">❤️</span><span class="arrow">→</span><span>💀</span></span>'
-        : '';
+        : (raised
+          ? '<span class="card-status" aria-label="zurückgeholt"><span class="before">💀</span><span class="arrow">→</span><span>❤️</span></span>'
+          : '');
       return '<div class="choice' + (p.alive ? '' : ' dead') + '" style="--name-size:' + font + 'px">' +
         crownMarks(p.name) +
         voteMarks(tally[String(p.id)]) +
         '<span class="who-block"><span class="who">' + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
         '</span>' + shift + '</span></div>';
-    }).join(''));
+    }).join('') + nobodyVoteCard(tally['0']));
     return phaseHead(SUN, 'Tag ' + state.day, '') +
       '<div class="stack">' + list +
-      '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button></div>';
+      (isGuest() || state.remote ? '' : '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button>') + '</div>';
   }
 
   function announceLines(lines) {
@@ -1051,14 +1086,16 @@
         act: 'vote-pick',
         cls: (finished ? ' done' : '') + (dead ? ' dead' : ''),
         disabled: finished || dead,
-        meta: dead ? 'tot' : (finished ? 'Stimme abgegeben' : (p.id === state.mayorId ? 'Bürgermeister, Stimme 1,5' : 'Stimme abgeben'))
+        meta: dead ? 'tot' : (finished ? 'Stimme abgegeben' : (p.id === state.mayorId ? 'Bürgermeister, Stimme 1,5' : 'Stimme abgeben')),
+        crowns: true
       });
     }).join(''));
-    return phaseHead(SUN, 'Tag ' + state.day, state.selfTell ? 'Tippe jede lebende Person, dann ihre Stimme.' : '') +
+    var osirisVote = state.voteKind === 'osiris';
+    return phaseHead(SUN, osirisVote ? 'Morgen' : ('Tag ' + state.day), osirisVote ? 'Osiris hat gesprochen. Wen holt das Dorf zurück?' : (state.selfTell ? 'Tippe jede lebende Person, dann ihre Stimme.' : '')) +
       '<div class="stack">' + errorHtml() +
       (state.selfTell ? '<p class="hint">Die Reihenfolge ist egal. Zurück vor dem Bestätigen verbraucht die Stimme nicht. Der Bürgermeister zählt 1,5.</p>' : '') +
       names +
-      (state.counts && state.counts.russe && !state.remoteNarrator ? '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' : '') +
+      (!osirisVote && ((state.counts && state.counts.russe) || state.russePossible) ? '<button type="button" class="btn secondary" data-act="to-duel">Duell</button>' : '') +
       abortLink() + '</div>';
   }
 
@@ -1146,11 +1183,17 @@
     var kind = prompt.target === 'house' ? 'house' : 'person';
     var intro = intros(person, prompt);
     var list = '';
-    if (prompt.kind === 'vote') {
-      list = W.targetsFor(state, prompt, person.id).map(function (p) {
-        return choiceButton(p.id, p.name, '', 'person', p.id === state.mayorId ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '');
-      }).join('') + choiceButton(0, 'Niemand', '', 'person');
-    } else if (prompt.kind === 'schaufel') {
+    if (prompt.kind === 'osiris') {
+      list = '';
+    } else if (prompt.kind === 'vote' && state.voteKind === 'osiris') {
+      list = nameGrid(W.targetsFor(state, prompt, person.id).map(function (p) {
+        return choiceButton(p.id, p.name, 'tot', 'person');
+      }).join('') + choiceButton(0, 'Niemand', '', 'person'));
+    } else if (prompt.kind === 'vote') {
+      list = nameGrid(W.targetsFor(state, prompt, person.id).map(function (p) {
+        return choiceButton(p.id, p.name, '', 'person');
+      }).join('') + choiceButton(0, 'Niemand', '', 'person'));
+    } else if (prompt.kind === 'schaufel' || prompt.kind === 'revive') {
       list = W.targetsFor(state, prompt, person.id).map(function (p) {
         return choiceButton(p.id, p.name, 'tot', 'person');
       }).join('');
@@ -1164,12 +1207,13 @@
       }).join('');
     }
     var skipLabel = '🚫 Ich will gar nichts machen';
-    if (prompt.kind === 'heal') skipLabel = (state.heals || []).length ? 'Keine weiteren Heiltränke' : 'Keinen Heiltrank';
+    if (prompt.kind === 'heal' || prompt.kind === 'revive') skipLabel = (state.heals || []).length ? 'Keine weiteren Heiltränke' : 'Keinen Heiltrank';
     if (prompt.kind === 'poison') skipLabel = 'Kein Gift';
+    if (prompt.kind === 'osiris') skipLabel = 'Passen';
     var canSkip = !prompt.forced && (prompt.kind === 'steal' || prompt.kind === 'copy' || prompt.kind === 'heal' ||
-      prompt.kind === 'poison' || prompt.kind === 'schaufel' || prompt.kind === 'wolf' || prompt.kind === 'seer');
+      prompt.kind === 'poison' || prompt.kind === 'schaufel' || prompt.kind === 'revive' || prompt.kind === 'osiris' || prompt.kind === 'wolf' || prompt.kind === 'seer');
     var skip = canSkip ? '<button type="button" class="btn secondary" data-act="skip">' + skipLabel + '</button>' : '';
-    var confirmLabel = prompt.kind === 'vote' ? 'Stimme abgeben' : (prompt.kind === 'nutte' ? 'Hier schlafen' : 'Fertig');
+    var confirmLabel = prompt.kind === 'vote' ? 'Stimme abgeben' : (prompt.kind === 'osiris' ? 'Einsetzen' : (prompt.kind === 'nutte' ? 'Hier schlafen' : 'Fertig'));
     return intro + '<div class="stack">' + list + '</div>' +
       '<button type="button" class="btn" data-act="confirm">' + confirmLabel + '</button>' + skip;
   }
@@ -1192,7 +1236,9 @@
       kill: prompt.attack === 'wolf'
         ? 'Zusätzlicher Werwolf-Angriff: wähle ein Haus.'
         : 'Nächtlicher Schuss: wähle ein Haus. Alle darin sterben.',
-      schaufel: 'Wen holst du am Morgen zurück? Die Person behält Rolle und verbrauchte Kräfte und ist nicht mehr verliebt.'
+      schaufel: 'Wen holst du am Morgen zurück? Die Person behält Rolle und verbrauchte Kräfte und ist nicht mehr verliebt.',
+      osiris: 'Schon jemand ist tot. Einsetzen verbraucht einen Einsatz. Am Morgen stimmt das Dorf ab, wer zurückkehrt. Du wählst die Person nicht selbst. Passen lässt den Einsatz liegen.',
+      revive: 'Wen holst du mit dem Heiltrank zurück? Die Person ist am Morgen wieder lebendig, behält Rolle und verbrauchte Kräfte und ist nicht mehr verliebt. Ein Haus schützt der Trank so nicht.'
     };
     var marks = {
       vote: hero('🗳️', 'Abstimmung'),
@@ -1203,9 +1249,11 @@
       amor: hero('💘', 'Amor'),
       copy: hero('🎭', 'Nachahmen'),
       heal: '<p class="hero">' + flask('heal') + '</p>',
+      revive: '<p class="hero">' + flask('heal') + '</p>',
       poison: '<p class="hero">' + flask('poison') + '</p>',
       kill: hero('🩸', 'Angriff'),
-      schaufel: hero('⛏️', 'Schaufel')
+      schaufel: hero('🪏', 'Schaufel'),
+      osiris: hero('⚱️', 'Osiris')
     };
     var reveal = prompt.reactive ? victimRevealHtml(prompt.victims) : '';
     return (marks[prompt.kind] || '') + '<p class="lead">' + esc(text[prompt.kind] || 'Wähle.') + '</p>' + reveal;
@@ -1915,7 +1963,12 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       else if (state.screen === 'wait') html = renderWait();
       else if (state.screen === 'lobby' || state.screen === 'setup') html = renderLobby();
       else if (state.screen === 'reveal') html = renderReveal();
-      else if (state.screen === 'discuss') html = renderDiscuss();
+      else if (state.screen === 'discuss') {
+        if (!state.remoteNarrator && !isGuest()) {
+          W.send(state, { type: 'to-vote' });
+          html = renderTurn();
+        } else html = renderDiscuss();
+      }
       else if (state.screen === 'announce') html = renderAnnounce();
       else if (state.screen === 'night' || state.screen === 'vote') html = renderTurn();
       else if (state.screen === 'hunter') html = renderHunter();
@@ -2029,6 +2082,13 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       act({ type: 'set-count', role: role, value: (state.counts[role] || 0) + Number(el.getAttribute('data-dir')) });
       return;
     }
+    if (type === 'osiris-uses') {
+      var osirisUses = (state.osirisUses == null ? 1 : state.osirisUses) + Number(el.getAttribute('data-dir'));
+      if (osirisUses < 1) osirisUses = 1;
+      if (osirisUses > 5) osirisUses = 5;
+      act({ type: 'set-osiris', value: osirisUses });
+      return;
+    }
     if (type === 'nach') {
       var next = (state.nachUses || 1) + Number(el.getAttribute('data-dir'));
       if (next < 1) next = 1;
@@ -2036,22 +2096,28 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       act({ type: 'set-nach', value: next });
       return;
     }
-    if (type === 'explain-pool' || type === 'explain-seer' || type === 'explain-wolf' || type === 'explain-amor' || type === 'explain-tell') {
+    if (type === 'explain-pool' || type === 'explain-seer' || type === 'explain-wolf' || type === 'explain-amor' || type === 'explain-tell' || type === 'explain-legacy') {
       var nextPool = type === 'explain-pool' && !explainPool;
       var nextSeer = type === 'explain-seer' && !explainSeer;
       var nextWolf = type === 'explain-wolf' && !explainWolf;
       var nextAmor = type === 'explain-amor' && !explainAmor;
       var nextTell = type === 'explain-tell' && !explainTell;
+      var nextLegacy = type === 'explain-legacy' && !explainLegacy;
       explainPool = nextPool;
       explainSeer = nextSeer;
       explainWolf = nextWolf;
       explainAmor = nextAmor;
       explainTell = nextTell;
+      explainLegacy = nextLegacy;
       render();
       return;
     }
     if (type === 'toggle-pool') {
       act({ type: 'toggle-pool' });
+      return;
+    }
+    if (type === 'toggle-legacy-witch') {
+      act({ type: 'toggle-legacy-witch' });
       return;
     }
     if (type === 'toggle-seer') {
@@ -2246,27 +2312,51 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
   var bugPanel = document.getElementById('bug-panel');
   var bugText = document.getElementById('bug-text');
   var bugStatus = document.getElementById('bug-status');
-  bugBtn.addEventListener('click', function () {
-    bugPanel.hidden = false;
-    bugStatus.textContent = '';
-    W.note(state, 'Fehlerbericht geöffnet');
-    persist();
-  });
-  document.getElementById('bug-close').addEventListener('click', function () {
-    bugPanel.hidden = true;
-    W.note(state, 'Fehlerbericht geschlossen');
-    persist();
-  });
-  document.getElementById('bug-copy').addEventListener('click', function () {
-    var text = W.report(state, bugText.value);
-    W.note(state, 'Fehlerbericht kopiert');
-    persist();
+  function putReport(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () {
         bugStatus.textContent = 'Kopiert. Du kannst den Text einfügen.';
       }, function () { fallbackCopy(text); });
     } else fallbackCopy(text);
+  }
+  if (bugBtn && bugPanel && bugText && bugStatus) {
+  bugBtn.addEventListener('click', function () {
+    bugPanel.hidden = false;
+    bugStatus.textContent = '';
+    if (!isGuest()) {
+      W.note(state, 'Fehlerbericht geöffnet');
+      persist();
+    }
   });
+  document.getElementById('bug-close').addEventListener('click', function () {
+    bugPanel.hidden = true;
+    if (!isGuest()) {
+      W.note(state, 'Fehlerbericht geschlossen');
+      persist();
+    }
+  });
+  document.getElementById('bug-copy').addEventListener('click', function () {
+    var description = bugText.value;
+    function finish(text) {
+      if (!text) {
+        bugStatus.textContent = 'Der Host hat keinen Bericht geschickt.';
+        return;
+      }
+      if (!isGuest()) {
+        W.note(state, 'Fehlerbericht kopiert');
+        persist();
+      }
+      putReport(text);
+    }
+    if (isGuest() && window.WerwolfNet && window.WerwolfNet.requestReport) {
+      bugStatus.textContent = 'Hole den Bericht vom Host …';
+      window.WerwolfNet.requestReport(description).then(finish);
+      return;
+    }
+    var actions = window.WerwolfNet && window.WerwolfNet.guestActions ? window.WerwolfNet.guestActions() : [];
+    finish(W.report(state, description, actions));
+  });
+  }
 
   function fallbackCopy(text) {
     bugText.value = text;
@@ -2392,10 +2482,12 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       state.selfTell = !!(savedSetup && savedSetup.selfTell);
       state.showWolfAction = !!(savedSetup && savedSetup.showWolfAction === true);
       state.quickAmor = !savedSetup || savedSetup.quickAmor !== false;
+      state.legacyWitch = !savedSetup || savedSetup.legacyWitch !== false;
       if (savedSetup && 'seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
       if (savedSetup && 'rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
       if (savedSetup && savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));
       if (savedSetup && savedSetup.nachUses != null) state.nachUses = savedSetup.nachUses;
+      if (savedSetup && savedSetup.osirisUses != null) state.osirisUses = savedSetup.osirisUses;
       if (savedSetup && savedSetup.healPotions != null) state.healPotions = savedSetup.healPotions;
       if (savedSetup && savedSetup.wolfMin != null) state.wolfMin = savedSetup.wolfMin;
       if (savedSetup && savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
