@@ -436,8 +436,8 @@ test('Liebestod durch Wolf, Gift, Wahl, Duell und Jäger', function () {
   W.send(vote, { type: 'ack' });
   assert.strictEqual(p(vote, 2).alive, false);
   assert.strictEqual(p(vote, 3).alive, false);
-  assert.strictEqual(vote.winner, 'woelfe');
-  assert.strictEqual(vote.screen, 'end');
+  assert.strictEqual(vote.winner, null);
+  assert.notStrictEqual(vote.screen, 'end');
 
   const duel = make(['russe', 'dorfbewohner', 'dorfbewohner', 'werwolf'], { rng: rngConst(0.2) });
   revealAndStart(duel);
@@ -458,8 +458,8 @@ test('Liebestod durch Wolf, Gift, Wahl, Duell und Jäger', function () {
   assert.strictEqual(p(duel, 2).alive, false);
   assert.strictEqual(p(duel, 1).alive, false);
   if (duel.screen === 'announce') W.send(duel, { type: 'ack' });
-  assert.strictEqual(duel.winner, 'woelfe');
-  assert.strictEqual(duel.screen, 'end');
+  assert.strictEqual(duel.winner, null);
+  assert.notStrictEqual(duel.screen, 'end');
 
   const hunter = make(['jaeger', 'dorfbewohner', 'werwolf', 'dorfbewohner']);
   revealAndStart(hunter);

@@ -172,8 +172,9 @@ Geprüft nach der Tagesauflösung und am Morgen nach Schüssen und Wiederbelebun
 1. Wurde der Politiker gewählt, gewinnt er sofort allein.
 2. Sonst gewinnt eine Liebesgruppe, die als Einzige noch lebt.
 3. Sonst gewinnt das Dorf, wenn kein Werwolf mehr lebt und noch jemand vom Dorf lebt. Ein lebender Politiker hindert das nicht.
-4. Sonst gewinnen die Werwölfe, wenn mindestens einer lebt und sie **mindestens so viele** sind wie alle anderen Lebenden. Der Politiker zählt dabei als Nicht-Wolf mit. Zwei Wölfe, zwei Dorfleute und ein lebender Politiker gehen weiter. Ein Wolf, eine Schaufel und ein lebender Politiker auch. Ein Werwolf und ein Politiker, ohne sonst jemanden, sind ein Wolfsieg.
-5. Lebt niemand mehr, oder nur noch der Politiker, gewinnt niemand.
+4. Sonst gewinnen die Werwölfe erst, wenn nur noch Werwölfe leben. Gleichstand oder Wolfsmehrheit beendet das Spiel nicht: zwei Wölfe und zwei Dorfleute spielen weiter, ein Wolf und ein Dorfbewohner auch, ein Wolf und ein Politiker auch. Abstimmen, Nacht und Fähigkeiten laufen weiter, bis eine andere Bedingung greift.
+5. Ist „Unendliche Runde“ an, gewinnt das Dorf nicht von allein. Eine Liebesgruppe, die als Einzige noch lebt, gewinnt weiterhin. An jedem Tag gibt es die Stimme „Nur noch Dorfbewohner“. Gewinnt sie und es leben weder Werwolf noch Politiker noch Waschbär, gewinnt das Dorf. Sonst gewinnen lebende Werwölfe, danach ein lebender Politiker, danach ein lebender Waschbär. Außerdem endet die Runde, wenn nur noch Werwölfe leben oder der Politiker gewählt wird.
+6. Lebt niemand mehr, oder nur noch der Politiker, gewinnt niemand.
 
 Start ist nur erlaubt, wenn mindestens ein Werwolf da ist, mindestens eine Person auf der Dorfseite, und die Wölfe weniger sind als die Dorfseite. Der Politiker ist dabei keine Dorfseite. Mindestens 4 Namen, nach oben offen.
 

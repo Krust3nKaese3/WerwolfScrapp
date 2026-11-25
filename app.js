@@ -25,6 +25,7 @@
   var explainAmor = false;
   var explainTell = false;
   var explainLegacy = false;
+  var explainCall = false;
   var confirmWolfId = 0;
   var uiJoin = false;
   var mpError = '';
@@ -123,7 +124,7 @@
   function setupActions(type) {
     return type === 'set-count' || type === 'set-nach' || type === 'set-osiris' || type === 'set-heals' || type === 'set-wolf-min' ||
       type === 'set-wolf-max' || type === 'toggle-seer' || type === 'toggle-wolf-action' || type === 'toggle-quick-amor' ||
-      type === 'toggle-self-tell' || type === 'toggle-legacy-witch' || type === 'toggle-pool' || type === 'suggest' ||
+      type === 'toggle-self-tell' || type === 'toggle-legacy-witch' || type === 'toggle-wolf-call' || type === 'toggle-pool' || type === 'suggest' ||
       type === 'undo-deal' || type === 'to-setup';
   }
 
@@ -142,6 +143,7 @@
     if (state.wolfMax != null) savedSetup.wolfMax = state.wolfMax;
     savedSetup.selfTell = !!state.selfTell;
     savedSetup.legacyWitch = state.legacyWitch !== false;
+    savedSetup.wolfCall = !!state.wolfCall;
   }
 
   function applySavedSetup() {
@@ -158,6 +160,7 @@
     if (savedSetup.wolfMax != null) state.wolfMax = savedSetup.wolfMax;
     if ('selfTell' in savedSetup) state.selfTell = !!savedSetup.selfTell;
     if ('legacyWitch' in savedSetup) state.legacyWitch = savedSetup.legacyWitch !== false;
+    if ('wolfCall' in savedSetup) state.wolfCall = !!savedSetup.wolfCall;
     state.error = '';
   }
 
@@ -431,8 +434,8 @@
     var symbol = meta && !/[A-Za-zÄÖÜäöüß0-9]/.test(meta);
     var place = order >= 0 && (state.selection || []).length > 1 ? 'Platz ' + (order + 1) : '';
     var note = [symbol ? '' : meta, place].filter(Boolean).join(' · ');
-    return '<button type="button" class="choice' + (selected(id) ? ' selected' : '') + '" data-act="select" data-id="' + id + '">' +
-      (Number(id) ? crownMarks(label) : '') +
+    return '<button type="button" class="choice' + (meta === 'tot' ? ' dead' : '') + (selected(id) ? ' selected' : '') + '" data-act="select" data-id="' + id + '">' +
+      (Number(id) > 0 ? crownMarks(label) : '') +
       icon(targetKind) + '<span><span class="who">' + mayorMark(id) + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
       (symbol ? '<span class="meta">' + esc(meta) + '</span>' : '') +
       (note ? '<span class="sub">' + esc(note) + '</span>' : '') +
@@ -662,6 +665,8 @@
         state.legacyWitch !== false
           ? 'Der Heiltrank schützt in dieser Nacht ein Haus.'
           : 'Der Heiltrank holt eine schon tote Person am Morgen zurück. Er schützt kein Haus.') +
+      optionRow('toggle-wolf-call', 'Unendliche Runde: ' + (state.wolfCall ? 'an' : 'aus'), !!state.wolfCall, 'explain-call', explainCall,
+        'Das Dorf gewinnt nicht von allein. Eine Liebesgruppe, die allein übrig ist, gewinnt weiterhin. An jedem Tag kann die Mehrheit „Nur noch Dorfbewohner“ wählen. Stimmt das, gewinnt das Dorf. Stimmt es nicht, gewinnen zuerst lebende Werwölfe, sonst der Politiker, sonst der Waschbär. Sonst endet die Runde nur, wenn nur noch Werwölfe leben oder der Politiker gewählt wird.') +
       (problem ? '<div class="banner error">' + esc(problem) + '</div>' : '') +
       '<div class="card stack">' + rows +
       '<div class="stepper"><span class="role-name">Einsätze ' + esc(W.roleName('osiris')) + '</span><span class="row" style="flex:0 0 auto;align-items:center">' +
@@ -870,6 +875,13 @@
     return '<span class="votes" aria-label="' + esc(spoken) + '">' + html + '</span>';
   }
 
+  function claimVoteCard(weight) {
+    var font = window.WerwolfNet ? window.WerwolfNet.nameSize('Nur noch Dorfbewohner') : 16;
+    return '<div class="choice" data-id="-1" style="--name-size:' + font + 'px">' +
+      voteMarks(weight) +
+      '<span class="who-block"><span class="who">' + esc('Nur noch Dorfbewohner') + '</span></span></div>';
+  }
+
   function nobodyVoteCard(weight) {
     var font = window.WerwolfNet ? window.WerwolfNet.nameSize('Niemand') : 18;
     return '<div class="choice" data-id="0" style="--name-size:' + font + 'px">' +
@@ -894,7 +906,7 @@
         voteMarks(tally[String(p.id)]) +
         '<span class="who-block"><span class="who">' + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
         '</span>' + shift + '</span></div>';
-    }).join('') + nobodyVoteCard(tally['0']));
+    }).join('') + nobodyVoteCard(tally['0']) + (box.claim ? claimVoteCard(tally['-1']) : ''));
     return phaseHead(SUN, 'Tag ' + state.day, '') +
       '<div class="stack">' + list +
       (isGuest() || state.remote ? '' : '<button type="button" class="btn" data-act="ack">' + esc(box.button || 'Weiter') + '</button>') + '</div>';
@@ -1192,7 +1204,8 @@
     } else if (prompt.kind === 'vote') {
       list = nameGrid(W.targetsFor(state, prompt, person.id).map(function (p) {
         return choiceButton(p.id, p.name, '', 'person');
-      }).join('') + choiceButton(0, 'Niemand', '', 'person'));
+      }).join('') + choiceButton(0, 'Niemand', '', 'person') +
+        (state.wolfCall ? choiceButton(-1, 'Nur noch Dorfbewohner', '', 'person') : ''));
     } else if (prompt.kind === 'schaufel' || prompt.kind === 'revive') {
       list = W.targetsFor(state, prompt, person.id).map(function (p) {
         return choiceButton(p.id, p.name, 'tot', 'person');
@@ -1203,6 +1216,7 @@
         var label = p.name;
         var meta = '';
         if (prompt.kind === 'wolf' && p.role === 'werwolf') meta = roleIcon('werwolf');
+        if (prompt.kind === 'seer' && !p.alive) meta = 'tot';
         return choiceButton(p.id, label, meta, kind);
       }).join('');
     }
@@ -2103,12 +2117,14 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       var nextAmor = type === 'explain-amor' && !explainAmor;
       var nextTell = type === 'explain-tell' && !explainTell;
       var nextLegacy = type === 'explain-legacy' && !explainLegacy;
+      var nextCall = type === 'explain-call' && !explainCall;
       explainPool = nextPool;
       explainSeer = nextSeer;
       explainWolf = nextWolf;
       explainAmor = nextAmor;
       explainTell = nextTell;
       explainLegacy = nextLegacy;
+      explainCall = nextCall;
       render();
       return;
     }
@@ -2118,6 +2134,10 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     }
     if (type === 'toggle-legacy-witch') {
       act({ type: 'toggle-legacy-witch' });
+      return;
+    }
+    if (type === 'toggle-wolf-call') {
+      act({ type: 'toggle-wolf-call' });
       return;
     }
     if (type === 'toggle-seer') {
@@ -2483,6 +2503,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
       state.showWolfAction = !!(savedSetup && savedSetup.showWolfAction === true);
       state.quickAmor = !savedSetup || savedSetup.quickAmor !== false;
       state.legacyWitch = !savedSetup || savedSetup.legacyWitch !== false;
+      state.wolfCall = !!(savedSetup && savedSetup.wolfCall);
       if (savedSetup && 'seerExact' in savedSetup) state.seerExact = !!savedSetup.seerExact;
       if (savedSetup && 'rolePool' in savedSetup) state.rolePool = !!savedSetup.rolePool;
       if (savedSetup && savedSetup.counts) state.counts = JSON.parse(JSON.stringify(savedSetup.counts));

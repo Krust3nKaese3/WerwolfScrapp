@@ -341,7 +341,7 @@
     'start-game': 1, ack: 1, 'to-vote': 1, 'to-duel': 1, cancel: 1,
     'add-name': 1, 'add-player': 1, deal: 1,
     'set-count': 1, 'set-nach': 1, 'set-osiris': 1, 'set-heals': 1, 'set-wolf-min': 1, 'set-wolf-max': 1,
-    'toggle-seer': 1, 'toggle-wolf-action': 1, 'toggle-quick-amor': 1, 'toggle-self-tell': 1, 'toggle-legacy-witch': 1,
+    'toggle-seer': 1, 'toggle-wolf-action': 1, 'toggle-quick-amor': 1, 'toggle-self-tell': 1, 'toggle-legacy-witch': 1, 'toggle-wolf-call': 1,
     'toggle-pool': 1, suggest: 1
   };
 

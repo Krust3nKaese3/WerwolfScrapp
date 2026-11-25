@@ -161,12 +161,12 @@ test('Liebesgruppe gewinnt vor der Wolfsparität', function () {
   assert.strictEqual(W.checkWin(state), 'liebespaar');
 });
 
-test('Politiker zählt bei der Wolfsmehrheit als Nicht-Wolf mit und gewinnt nur durch die Wahl', function () {
+test('Ein Wolf gegen einen Politiker spielt weiter, der Politiker gewinnt nur durch die Wahl', function () {
   const state = game(['Wolf', 'Dorf', 'Pol', 'Hexe']);
   setRoles(state, ['werwolf', 'dorfbewohner', 'politiker', 'hexe']);
   state.players[1].alive = false;
   state.players[3].alive = false;
-  assert.strictEqual(W.checkWin(state), 'woelfe');
+  assert.strictEqual(W.checkWin(state), null);
   const alone = game(['Pol', 'D', 'W', 'H']);
   setRoles(alone, ['politiker', 'dorfbewohner', 'werwolf', 'hexe']);
   alone.players.forEach(function (p) { if (p.role !== 'politiker') p.alive = false; });

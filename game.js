@@ -60,6 +60,7 @@
     woelfe: 'Die Werwölfe gewinnen.',
     liebespaar: 'Das Liebespaar gewinnt.',
     politiker: 'Der Politiker gewinnt.',
+    waschbaer: 'Der Waschbär gewinnt.',
     niemand: 'Niemand gewinnt.'
   };
 
@@ -368,6 +369,7 @@
       showWolfAction: false,
       quickAmor: true,
       legacyWitch: true,
+      wolfCall: false,
       wolfMin: wolves,
       wolfMax: wolves
     };
@@ -385,6 +387,7 @@
       showWolfAction: !!state.showWolfAction,
       quickAmor: state.quickAmor !== false,
       legacyWitch: state.legacyWitch !== false,
+      wolfCall: !!state.wolfCall,
       wolfMin: state.wolfMin == null ? wolves : state.wolfMin,
       wolfMax: state.wolfMax == null ? wolves : state.wolfMax
     };
@@ -400,6 +403,7 @@
     state.showWolfAction = !!config.showWolfAction;
     state.quickAmor = config.quickAmor !== false;
     state.legacyWitch = config.legacyWitch !== false;
+    state.wolfCall = !!config.wolfCall;
     state.wolfMin = config.wolfMin;
     state.wolfMax = config.wolfMax;
     state.confirmUndoDeal = false;
@@ -469,6 +473,7 @@
     state.showWolfAction = !!opts.showWolfAction;
     state.quickAmor = opts.quickAmor !== false;
     state.legacyWitch = opts.legacyWitch !== false;
+    state.wolfCall = !!opts.wolfCall;
     state.config.rolePool = rolePool;
     state.config.selfTell = state.selfTell;
     state.config.showWolfAction = state.showWolfAction;
@@ -477,6 +482,7 @@
     state.config.wolfMax = wolfMax;
     state.config.seerExact = state.seerExact;
     state.config.legacyWitch = state.legacyWitch !== false;
+    state.config.wolfCall = !!state.wolfCall;
     note(state, 'Rollen verteilt');
     return state;
   }
@@ -610,6 +616,7 @@
       showWolfAction: !!state.showWolfAction,
       quickAmor: state.quickAmor !== false,
       legacyWitch: state.legacyWitch !== false,
+      wolfCall: !!state.wolfCall,
       wolfMin: state.wolfMin,
       wolfMax: state.wolfMax,
       log: state.log
@@ -835,6 +842,7 @@
     var wolves = alive.filter(function (p) { return p.role === 'werwolf'; }).length;
     var village = alive.filter(function (p) { return teamOfRole(p.role) === 'village'; }).length;
     if (wolves === 0 && village > 0) {
+      if (state.wolfCall) return null;
       state.winner = 'dorf';
       state.winReason = 'Kein Werwolf lebt mehr.';
       return state.winner;
@@ -845,9 +853,9 @@
       return state.winner;
     }
     var others = alive.length - wolves;
-    if (wolves >= others) {
+    if (wolves > 0 && others === 0) {
       state.winner = 'woelfe';
-      state.winReason = 'Die Werwölfe sind mindestens so viele wie alle anderen Lebenden. Der Politiker zählt dabei als Nicht-Wolf mit.';
+      state.winReason = 'Nur noch Werwölfe leben.';
       return state.winner;
     }
     return null;
@@ -856,6 +864,8 @@
   function scoreRecipients(state) {
     if (!state || !state.winner || state.winner === 'niemand') return [];
     if (state.winner === 'politiker') {
+      var alivePol = living(state).filter(function (p) { return p.role === 'politiker'; });
+      if (alivePol.length) return alivePol.map(function (p) { return p.name; });
       var voted = (state.obit || []).filter(function (row) { return row.cause === 'abstimmung'; });
       if (voted.length) return voted.map(function (row) { return row.name; });
       return state.players.filter(function (p) { return p.role === 'politiker' && !p.alive; }).map(function (p) { return p.name; });
@@ -868,6 +878,9 @@
     }
     if (state.winner === 'dorf') {
       return living(state).filter(function (p) { return teamOfRole(p.role) === 'village'; }).map(function (p) { return p.name; });
+    }
+    if (state.winner === 'waschbaer') {
+      return living(state).filter(function (p) { return p.role === 'waschbaer'; }).map(function (p) { return p.name; });
     }
     if (state.winner === 'woelfe') {
       return living(state).filter(function (p) { return p.role === 'werwolf'; }).map(function (p) { return p.name; });
@@ -970,6 +983,7 @@
     state.lastTally = scores;
     if (top.length !== 1) return { type: 'tie', scores: scores };
     if (top[0] === '0') return { type: 'none', scores: scores };
+    if (top[0] === '-1') return { type: 'call', scores: scores };
     return { type: 'player', id: Number(top[0]), scores: scores };
   }
 
@@ -1687,21 +1701,46 @@
     var lines = tallyLines(state, result.scores);
     if (result.type === 'tie') {
       lines.push('Gleichstand. Niemand stirbt.');
-      state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'night' };
+      state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'night', claim: !!state.wolfCall };
       setScreen(state, 'announce');
       note(state, 'Abstimmung Gleichstand');
       return;
     }
     if (result.type === 'none') {
       lines.push('Die Mehrheit wählt Niemand. Niemand stirbt.');
-      state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'night' };
+      state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'night', claim: !!state.wolfCall };
+      setScreen(state, 'announce');
+      return;
+    }
+    if (result.type === 'call') {
+      var wolvesLeft = living(state).some(function (p) { return p.role === 'werwolf'; });
+      var politicianLeft = living(state).some(function (p) { return p.role === 'politiker'; });
+      var raccoonLeft = living(state).some(function (p) { return p.role === 'waschbaer'; });
+      if (!wolvesLeft && !politicianLeft && !raccoonLeft) {
+        state.winner = 'dorf';
+        state.winReason = 'Nur noch Dorfbewohner leben.';
+        note(state, 'Nur noch Dorfbewohner');
+      } else if (wolvesLeft) {
+        state.winner = 'woelfe';
+        state.winReason = 'Es leben noch Werwölfe.';
+        note(state, 'Falsch: noch Werwölfe');
+      } else if (politicianLeft) {
+        state.winner = 'politiker';
+        state.winReason = 'Es lebt noch ein Politiker.';
+        note(state, 'Falsch: noch Politiker');
+      } else {
+        state.winner = 'waschbaer';
+        state.winReason = 'Es lebt noch ein Waschbär.';
+        note(state, 'Falsch: noch Waschbär');
+      }
+      state.announce = { title: 'Abstimmung', lines: [], button: 'Ergebnis', then: 'end', claim: true };
       setScreen(state, 'announce');
       return;
     }
     var target = playerById(state, result.id);
     lines.push(target.name + ' ist gewählt.');
     state.pendingCondemn = target.id;
-    state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'apply-vote' };
+    state.announce = { title: 'Abstimmung', lines: lines, button: 'Weiter', then: 'apply-vote', claim: !!state.wolfCall };
     setScreen(state, 'announce');
     note(state, 'Verurteilt ' + target.name);
   }
@@ -1734,7 +1773,7 @@
   function tallyLines(state, scores) {
     var lines = [];
     Object.keys(scores).forEach(function (key) {
-      var label = key === '0' ? 'Niemand' : playerById(state, key).name;
+      var label = key === '0' ? 'Niemand' : (key === '-1' ? 'Nur noch Dorfbewohner' : playerById(state, key).name);
       lines.push(label + ': ' + formatWeight(scores[key]));
     });
     return lines;
@@ -1916,7 +1955,9 @@
           var dead = playerById(state, voteId);
           if (!dead || dead.alive) return 'Wähle eine tote Person oder Niemand.';
         }
-      } else if (voteId !== 0 && !livingTarget(state, voteId)) return 'Diese Person stimmt nicht.';
+      } else if (voteId === -1) {
+        if (!state.wolfCall) return 'Das geht in diesem Spiel nicht.';
+      } else if (!livingTarget(state, voteId)) return 'Diese Person stimmt nicht.';
       state.votes[player.id] = voteId === 0 ? 0 : voteId;
       return [];
     }
@@ -1982,7 +2023,7 @@
     }
     if (prompt.kind === 'seer') {
       var seen = chosenId(state, action);
-      if (!livingTarget(state, seen) || seen === player.id) return 'Wähle eine andere Person.';
+      if (!playerById(state, seen) || seen === player.id) return 'Wähle eine andere Person.';
       var target = playerById(state, seen);
       var verdict = seerVerdict(state, target);
       return [{ kind: 'seer-result', seenId: seen, role: target.role, exact: verdict.exact, label: verdict.label }];
@@ -2329,6 +2370,12 @@
       state.legacyWitch = state.legacyWitch === false;
       state.error = '';
       note(state, 'Legacy-Hexe ' + (state.legacyWitch === false ? 'aus' : 'an'));
+      return;
+    }
+    if (action.type === 'toggle-wolf-call') {
+      state.wolfCall = !state.wolfCall;
+      state.error = '';
+      note(state, 'Unendliche Runde ' + (state.wolfCall ? 'an' : 'aus'));
       return;
     }
     if (action.type === 'toggle-seer') {
@@ -3133,7 +3180,10 @@
       return revealedDead(state).filter(function (p) { return !waiting[p.id]; });
     }
     if (prompt.kind === 'amor') return living(state);
-    if (prompt.kind === 'seer' || prompt.kind === 'copy') {
+    if (prompt.kind === 'seer') {
+      return state.players.filter(function (p) { return p.id !== selfId; });
+    }
+    if (prompt.kind === 'copy') {
       return living(state).filter(function (p) { return p.id !== selfId; });
     }
     if (prompt.kind === 'heal') {
