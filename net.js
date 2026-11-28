@@ -247,6 +247,8 @@
     copy.finishedIds = done;
     copy.pendingNamesPublic = pending;
     if (copy.screen !== 'lobby') copy.error = '';
+    delete copy.wolfVotes;
+    delete copy.wolfPack;
     return copy;
   }
 
@@ -288,6 +290,8 @@
     }
     copy.remoteHold = true;
     copy.error = preview.error || '';
+    delete copy.wolfVotes;
+    delete copy.wolfPack;
     return copy;
   }
 
@@ -364,6 +368,9 @@
     var qrPayload = '';
     var actionLog = [];
     var reportWait = null;
+    var hostPack = { votes: [], picks: [] };
+    var packTimer = null;
+    var PACK_MS = 150;
 
     function actionBrief(action) {
       action = action || {};
@@ -390,11 +397,11 @@
     function applied() {
       if (hooks.after) hooks.after();
       publish();
-      ping();
+      flushPack();
     }
 
-    function done() {
-      publish();
+    function done(opts) {
+      publish(opts);
       ping();
     }
 
@@ -417,16 +424,114 @@
       return base;
     }
 
-    function publish() {
+    function wolfChoosing(preview) {
+      if (!preview || preview.step !== 'show' || preview.selfTell) return false;
+      var prompt = preview.prompts && preview.prompts[preview.promptIndex || 0];
+      if (!prompt || prompt.kind !== 'wolf') return false;
+      var actor = playerOf(preview, preview.activeId);
+      return !!(actor && actor.role === 'werwolf');
+    }
+
+    function collectPack() {
+      var game = auth() || {};
+      var votes = {};
+      var picks = {};
+      Object.keys(game.wolfVotes || {}).forEach(function (id) {
+        var target = Number(game.wolfVotes[id]);
+        if (target) votes[Number(id)] = target;
+      });
+      Object.keys(holds).forEach(function (key) {
+        var seatId = Number(key);
+        var preview = previewOf(seatId);
+        if (!wolfChoosing(preview)) return;
+        if (preview.wolfVotes && preview.wolfVotes[seatId] != null) votes[seatId] = Number(preview.wolfVotes[seatId]);
+        var sel = preview.selection && preview.selection.length === 1 ? Number(preview.selection[0]) : 0;
+        if (sel && votes[seatId] == null) picks[seatId] = sel;
+      });
+      return { votes: votes, picks: picks };
+    }
+
+    function packRows(raw, seatId) {
+      var game = auth() || {};
+      function rows(map) {
+        return Object.keys(map || {}).filter(function (id) {
+          return Number(id) !== Number(seatId);
+        }).map(function (id) {
+          var wolf = playerOf(game, id);
+          return wolf && wolf.name ? { name: wolf.name, targetId: Number(map[id]) } : null;
+        }).filter(function (row) { return row && row.targetId; });
+      }
+      return { votes: rows(raw.votes), picks: rows(raw.picks) };
+    }
+
+    function attachPack(copy, seatId, raw) {
+      delete copy.wolfVotes;
+      delete copy.wolfPack;
+      if (!wolfChoosing(copy)) return;
+      copy.wolfPack = packRows(raw, seatId);
+    }
+
+    function rememberHost(raw) {
+      var seat = deviceSeat[selfId];
+      if (seat == null) {
+        hostPack = { votes: [], picks: [] };
+        return;
+      }
+      var preview = previewOf(seat);
+      if (!wolfChoosing(preview)) {
+        hostPack = { votes: [], picks: [] };
+        return;
+      }
+      hostPack = packRows(raw, seat);
+    }
+
+    function deliverPack() {
       if (role !== 'host') return;
-      stampGrid(auth());
-      var pub = publicState(auth(), locks);
-      broadcast({ t: 'pub', state: pub });
+      var raw = collectPack();
+      rememberHost(raw);
       Object.keys(holds).forEach(function (key) {
         var seatId = Number(key);
         var deviceId = holds[key].deviceId;
+        if (!deviceId || deviceId === selfId) return;
+        var preview = previewOf(seatId);
+        if (!wolfChoosing(preview)) return;
+        sendTo(deviceId, { t: 'pack', pack: packRows(raw, seatId) });
+      });
+    }
+
+    function flushPack() {
+      if (packTimer) {
+        clearTimeout(packTimer);
+        packTimer = null;
+      }
+      deliverPack();
+      ping();
+    }
+
+    function schedulePack() {
+      if (packTimer) return;
+      packTimer = setTimeout(function () {
+        packTimer = null;
+        deliverPack();
+        ping();
+      }, PACK_MS);
+    }
+
+    function publish(opts) {
+      if (role !== 'host') return;
+      opts = opts || {};
+      stampGrid(auth());
+      var pub = publicState(auth(), locks);
+      broadcast({ t: 'pub', state: pub });
+      var raw = collectPack();
+      Object.keys(holds).forEach(function (key) {
+        var seatId = Number(key);
+        if (opts.onlySeat != null && seatId !== Number(opts.onlySeat)) return;
+        var deviceId = holds[key].deviceId;
         if (deviceId === selfId) return;
-        sendTo(deviceId, { t: 'priv', state: privateState(previewOf(seatId), seatId) });
+        var priv = privateState(previewOf(seatId), seatId);
+        attachPack(priv, seatId, raw);
+        sendTo(deviceId, { t: 'priv', state: priv });
       });
     }
 
@@ -488,6 +593,7 @@
       if (action.type === 'cancel' && preview.screen !== 'duel') backToList = true;
       if (backToList) {
         clearDevice(deviceId);
+        flushPack();
         done();
         return;
       }
@@ -496,7 +602,14 @@
         applied();
         return;
       }
-      done();
+      var livePick = action.type === 'select' && wolfChoosing(preview) && preview.selection && preview.selection.length === 1;
+      if (livePick) {
+        done({ onlySeat: seatId });
+        schedulePack();
+        return;
+      }
+      done({ onlySeat: seatId });
+      flushPack();
     }
 
     function onLocal(deviceId, action) {
@@ -602,6 +715,16 @@
       if (data.t === 'priv') {
         holding = true;
         hooks.setState(data.state);
+        ping();
+        return;
+      }
+      if (data.t === 'pack') {
+        if (!holding) return;
+        var current = hooks.getState();
+        var prompt = current && current.prompts && current.prompts[current.promptIndex || 0];
+        if (!current || current.step !== 'show' || !prompt || prompt.kind !== 'wolf') return;
+        current.wolfPack = data.pack || { votes: [], picks: [] };
+        hooks.setState(current);
         ping();
         return;
       }
@@ -751,6 +874,10 @@
         var was = role;
         role = 'off';
         holding = false;
+        if (packTimer) {
+          clearTimeout(packTimer);
+          packTimer = null;
+        }
         locks = {};
         holds = {};
         deviceSeat = {};
@@ -781,7 +908,9 @@
         if (role !== 'host') return null;
         var seat = deviceSeat[selfId];
         if (seat == null || !holds[seat]) return null;
-        return previewOf(seat);
+        var view = previewOf(seat);
+        if (wolfChoosing(view)) view.wolfPack = clone(hostPack);
+        return view;
       },
       role: function () { return role; },
       online: function () { return role === 'host' || role === 'guest'; },

@@ -1997,7 +1997,7 @@
         }
       } else if (voteId === -1) {
         if (!state.wolfCall) return 'Das geht in diesem Spiel nicht.';
-      } else if (!livingTarget(state, voteId)) return 'Diese Person stimmt nicht.';
+      } else if (voteId !== 0 && !livingTarget(state, voteId)) return 'Diese Person stimmt nicht.';
       state.votes[player.id] = voteId === 0 ? 0 : voteId;
       return [];
     }

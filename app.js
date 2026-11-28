@@ -433,18 +433,34 @@
     return (state.selection || []).indexOf(Number(id)) >= 0;
   }
 
-  function choiceButton(id, label, meta, targetKind, extra) {
+  function choiceButton(id, label, meta, targetKind, extra, mark, badges) {
     var order = (state.selection || []).indexOf(Number(id));
     var symbol = meta && !/[A-Za-zÄÖÜäöüß0-9]/.test(meta);
     var place = order >= 0 && (state.selection || []).length > 1 ? 'Platz ' + (order + 1) : '';
     var note = [symbol ? '' : meta, place].filter(Boolean).join(' · ');
-    return '<button type="button" class="choice' + (meta === 'tot' || meta === 'gestern' ? ' dead' : '') + (selected(id) ? ' selected' : '') + '"' +
+    return '<button type="button" class="choice' + (meta === 'tot' || meta === 'gestern' ? ' dead' : '') + (selected(id) ? ' selected' : '') + (mark ? ' ' + mark : '') + '"' +
       (meta === 'gestern' ? ' disabled' : '') + ' data-act="select" data-id="' + id + '">' +
       (Number(id) > 0 ? crownMarks(label) : '') +
       icon(targetKind) + '<span><span class="who">' + mayorMark(id) + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
       (symbol ? '<span class="meta">' + esc(meta) + '</span>' : '') +
       (note ? '<span class="sub">' + esc(note) + '</span>' : '') +
-      '</span></button>';
+      '</span>' + (badges || '') + '</button>';
+  }
+
+  function wolfPackMarks(targetId) {
+    var pack = state.wolfPack || {};
+    var votes = (pack.votes || []).filter(function (row) { return Number(row.targetId) === Number(targetId); });
+    var picks = (pack.picks || []).filter(function (row) { return Number(row.targetId) === Number(targetId); });
+    if (!votes.length && !picks.length) return { mark: '', html: '' };
+    var html = '<span class="pack-row">';
+    votes.forEach(function (row) {
+      html += '<span class="pack-badge" aria-label="' + esc(row.name) + ' hat dieses Haus gewählt">' + esc(row.name) + '</span>';
+    });
+    picks.forEach(function (row) {
+      html += '<span class="pack-badge live" aria-label="' + esc(row.name) + ' wählt gerade">' + esc(row.name) + '</span>';
+    });
+    html += '</span>';
+    return { mark: picks.length ? 'choosing' : '', html: html };
   }
 
   function blurb(role, person) {
@@ -1259,6 +1275,10 @@
         var meta = '';
         if (prompt.kind === 'wolf' && p.role === 'werwolf') meta = roleIcon('werwolf');
         if (prompt.kind === 'seer' && !p.alive) meta = 'tot';
+        if (prompt.kind === 'wolf') {
+          var marks = wolfPackMarks(p.id);
+          return choiceButton(p.id, label, meta, kind, '', marks.mark, marks.html);
+        }
         return choiceButton(p.id, label, meta, kind);
       }).join('');
     }

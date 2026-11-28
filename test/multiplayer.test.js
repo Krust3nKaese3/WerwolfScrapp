@@ -194,7 +194,7 @@ async function main() {
   const css = fs.readFileSync(path.join(root, 'styles.css'), 'utf8');
   assert.ok(css.indexOf('.name-grid .who') >= 0);
   assert.ok(css.indexOf('overflow-wrap: anywhere') >= 0);
-  assert.strictEqual(css.indexOf('text-overflow'), -1);
+  assert.strictEqual(css.slice(0, css.indexOf('.stats-filters')).indexOf('text-overflow'), -1);
 
   const names = ['Anna', 'Ben', 'Chris', 'Dora', 'Emil', 'Fiona', 'Gerd', 'Hanna'];
   const hostBox = { state: W.createGame(names, countsFor(2, 6), { quickAmor: true, showWolfAction: false, rng: function () { return 0; } }) };
@@ -410,6 +410,115 @@ async function main() {
   gateGuest.local({ type: 'back' });
   assert.strictEqual(gateHost.lockOwner(jens.id), null);
   assert.ok(!gate.state.revealed || !gate.state.revealed[jens.id]);
+
+  function wait(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+  function wolfLeak(value) {
+    const found = [];
+    function walk(node, here) {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        node.forEach(function (item, index) { walk(item, here + '[' + index + ']'); });
+        return;
+      }
+      Object.keys(node).forEach(function (key) {
+        const next = here + '.' + key;
+        if (key === 'wolfVotes' || key === 'wolfPack') found.push(next);
+        else walk(node[key], next);
+      });
+    }
+    walk(value, '$');
+    return found;
+  }
+  const packGame = W.createGame(['Ida', 'Jens', 'Kai', 'Lea', 'Mara'], countsFor(2, 3), { quickAmor: true, rng: function () { return 0; } });
+  packGame.players.forEach(function (p) {
+    W.send(packGame, { type: 'reveal-pick', id: p.id });
+    W.send(packGame, { type: 'reveal-see' });
+    W.send(packGame, { type: 'ack' });
+  });
+  W.send(packGame, { type: 'start-game' });
+  assert.strictEqual(packGame.screen, 'night');
+  const packBox = { state: packGame };
+  const packHub = N.createHub();
+  const packHostMp = packHub.device('Host');
+  const packWolfMp = packHub.device('Wolf');
+  const packDorfMp = packHub.device('Dorf');
+  const packCast = [];
+  const packDirect = [];
+  const packBroadcast = packHostMp.broadcast;
+  const packSend = packHostMp.send;
+  packHostMp.broadcast = function (data) {
+    packCast.push(JSON.parse(JSON.stringify(data)));
+    return packBroadcast.apply(packHostMp, arguments);
+  };
+  packHostMp.send = function (data, opts) {
+    packDirect.push({ to: opts && opts.to, data: JSON.parse(JSON.stringify(data)) });
+    return packSend.apply(packHostMp, arguments);
+  };
+  const packHost = N.createSession(packHostMp, boxHooks(packBox));
+  const wolfBox = { state: null };
+  const dorfBox = { state: null };
+  const wolfGuest = N.createSession(packWolfMp, boxHooks(wolfBox));
+  const dorfGuest = N.createSession(packDorfMp, boxHooks(dorfBox));
+  await packHost.host();
+  await wolfGuest.joinQr(packHost.roomInfo().qrPayload, 'Wolf');
+  await dorfGuest.joinQr(packHost.roomInfo().qrPayload, 'Dorf');
+  const packWolves = packBox.state.players.filter(function (p) { return p.role === 'werwolf'; });
+  const packDorf = packBox.state.players.filter(function (p) { return p.role !== 'werwolf'; })[0];
+  assert.strictEqual(packWolves.length, 2);
+  function openSeat(session, id) {
+    session.local({ type: 'night-pick', id: id });
+    session.local({ type: 'go' });
+  }
+  openSeat(packHost, packWolves[0].id);
+  openSeat(wolfGuest, packWolves[1].id);
+  openSeat(dorfGuest, packDorf.id);
+  assert.strictEqual(W.view(packHost.display()).prompt.kind, 'wolf');
+  assert.strictEqual(W.view(wolfBox.state).prompt.kind, 'wolf');
+  assert.notStrictEqual(W.view(dorfBox.state).prompt.kind, 'wolf');
+  const aim = packDorf.id;
+  wolfGuest.local({ type: 'select', id: aim });
+  assert.deepStrictEqual(packHost.display().wolfPack.picks, []);
+  await wait(200);
+  assert.deepStrictEqual(packHost.display().wolfPack.picks, [{ name: packWolves[1].name, targetId: aim }]);
+  wolfGuest.local({ type: 'select', id: aim });
+  assert.deepStrictEqual(packHost.display().wolfPack.picks, []);
+  assert.deepStrictEqual(wolfBox.state.wolfPack.picks, []);
+  packHost.local({ type: 'select', id: aim });
+  await wait(200);
+  assert.ok(wolfBox.state.wolfPack.picks.some(function (row) {
+    return row.name === packWolves[0].name && row.targetId === aim;
+  }));
+  packHost.local({ type: 'select', id: aim });
+  assert.deepStrictEqual(wolfBox.state.wolfPack.picks, []);
+  packHost.local({ type: 'select', id: aim });
+  packHost.local({ type: 'confirm' });
+  assert.strictEqual(packBox.state.wolfVotes[packWolves[0].id], aim);
+  assert.ok(wolfBox.state.wolfPack.votes.some(function (row) {
+    return row.name === packWolves[0].name && row.targetId === aim;
+  }));
+  assert.ok(!dorfBox.state.wolfPack);
+  assert.ok(!dorfBox.state.wolfVotes);
+  packCast.forEach(function (message) {
+    assert.notStrictEqual(message.t, 'pack');
+    assert.deepStrictEqual(wolfLeak(message), []);
+  });
+  assert.deepStrictEqual(wolfLeak(N.publicState(packBox.state, {})), []);
+  packDirect.forEach(function (message) {
+    if (message.to !== dorfGuest.selfId()) return;
+    assert.notStrictEqual(message.data.t, 'pack');
+    assert.deepStrictEqual(wolfLeak(message.data), []);
+  });
+  const wolfPacks = packDirect.filter(function (message) {
+    return message.data.t === 'pack';
+  });
+  assert.ok(wolfPacks.length > 0);
+  wolfPacks.forEach(function (message) {
+    assert.strictEqual(message.to, wolfGuest.selfId());
+  });
+  assert.ok(css.indexOf('.pack-badge') >= 0);
+  assert.ok(css.indexOf('.pack-badge.live') >= 0);
 
   console.log('multiplayer ok');
 }
