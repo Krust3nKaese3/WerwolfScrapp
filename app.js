@@ -433,6 +433,38 @@
     return (state.selection || []).indexOf(Number(id)) >= 0;
   }
 
+  function myBond() {
+    var net = window.WerwolfNet;
+    if (net && net.online && net.online()) return net.bond ? net.bond() : null;
+    if (!state || state.selfTell) return null;
+    if (state.step === 'list' || state.step === 'call' || state.step === 'sheet') return null;
+    var viewer = state.activeId;
+    if (viewer == null) return null;
+    var brief = W.loveBrief(state, viewer);
+    if (!brief) return null;
+    return { selfId: viewer, partners: brief.partners };
+  }
+
+  function loveHeart(id) {
+    var bond = myBond();
+    if (!bond || !(bond.partners || []).some(function (person) { return Number(person.id) === Number(id); })) return '';
+    return '<span class="love-heart" aria-label="Partner">❤️</span>';
+  }
+
+  function loveReveal(person) {
+    var brief = person && W.loveBrief(state, person.id);
+    if (!brief) return '';
+    var names = brief.partners.map(function (partner) { return partner.name; }).join(', ');
+    var roles = brief.partners.filter(function (partner) { return partner.role; }).map(function (partner) {
+      return partner.name + ' ist ' + W.roleName(partner.role) + '.';
+    }).join(' ');
+    return '<p class="hero love-mark" aria-hidden="true">❤️</p>' +
+      '<p class="love-huge">Du bist verliebt in ' + esc(names) + '</p>' +
+      '<p class="lead">Du bist ' + esc(W.roleName(person.role)) + '.</p>' +
+      (roles ? '<p class="lead">' + esc(roles) + '</p>' : '') +
+      brief.lines.map(function (line) { return '<p class="lead">' + esc(line) + '</p>'; }).join('');
+  }
+
   function choiceButton(id, label, meta, targetKind, extra, mark, badges) {
     var order = (state.selection || []).indexOf(Number(id));
     var symbol = meta && !/[A-Za-zÄÖÜäöüß0-9]/.test(meta);
@@ -441,7 +473,7 @@
     return '<button type="button" class="choice' + (meta === 'tot' || meta === 'gestern' ? ' dead' : '') + (selected(id) ? ' selected' : '') + (mark ? ' ' + mark : '') + '"' +
       (meta === 'gestern' ? ' disabled' : '') + ' data-act="select" data-id="' + id + '">' +
       (Number(id) > 0 ? crownMarks(label) : '') +
-      icon(targetKind) + '<span><span class="who">' + mayorMark(id) + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
+      icon(targetKind) + '<span><span class="who">' + loveHeart(id) + mayorMark(id) + (extra || '') + esc(String(label || '').replace(/([^ ])#/g, '$1 #')) + '</span>' +
       (symbol ? '<span class="meta">' + esc(meta) + '</span>' : '') +
       (note ? '<span class="sub">' + esc(note) + '</span>' : '') +
       '</span>' + (badges || '') + '</button>';
@@ -773,7 +805,7 @@
       (disabled ? ' disabled' : '') + ' style="--name-size:' + font + 'px">' +
       (opts.crowns ? crownMarks(p.name) : '') +
       (locked ? '<span class="lock" aria-hidden="true">' + LOCK + '</span>' : '') +
-      '<span class="who">' + mayorMark(p.id) + esc(p.name) + '</span><span class="meta">' +
+      '<span class="who">' + loveHeart(p.id) + mayorMark(p.id) + esc(p.name) + '</span><span class="meta">' +
       esc(locked ? 'belegt' : opts.meta) + '</span></button>';
   }
 
@@ -790,13 +822,8 @@
     if (state.step === 'love') {
       var lover = player(state.activeId);
       if (!lover) return header('Rollen', 'Werwolf');
-      var partnerId = (lover.amorPair || []).filter(function (id) { return id !== lover.id; })[0];
-      var partner = player(partnerId);
       return header('Liebe', lover.name) +
-        '<section class="stage card">' + hero('💞', 'Liebe') +
-        '<p class="eyebrow">Dein Partner</p>' +
-        '<p class="big-role">' + esc(partner ? partner.name : '') + '</p>' +
-        '<p class="lead">ist ' + esc(partner ? W.roleName(partner.role) : '') + '.</p>' +
+        '<section class="stage card">' + loveReveal(lover) +
         '<button type="button" class="btn" data-act="ack">Verdecken</button></section>';
     }
     if (state.step === 'link') {
@@ -825,6 +852,7 @@
         '<section class="stage card">' + hero(roleIcon(person.role), W.roleName(person.role)) +
         '<p class="big-role">' + esc(W.roleName(person.role)) + '</p>' +
         '<p class="lead">' + esc(blurb(person.role, person)) + '</p>' +
+        loveReveal(person) +
         pair +
         '<button type="button" class="btn" data-act="ack">Verstanden, verdecken</button>' +
         '<button type="button" class="btn secondary" data-act="back">Zurück</button></section>';
@@ -860,7 +888,7 @@
       var font = window.WerwolfNet ? window.WerwolfNet.nameSize(p.name) : 18;
       return '<div class="choice' + (p.alive ? '' : ' dead') + '" style="--name-size:' + font + 'px">' +
         crownMarks(p.name) +
-        '<span class="who">' + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
+        '<span class="who">' + loveHeart(p.id) + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
         '</span>' + (badges.length ? '<span class="meta">' + esc(badges.join(' · ')) + '</span>' : '') + '</div>';
     }).join(''));
     var telling = !!state.selfTell && !state.remoteNarrator;
@@ -932,7 +960,7 @@
       return '<div class="choice' + (p.alive ? '' : ' dead') + '" style="--name-size:' + font + 'px">' +
         crownMarks(p.name) +
         voteMarks(tally[String(p.id)]) +
-        '<span class="who-block"><span class="who">' + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
+        '<span class="who-block"><span class="who">' + loveHeart(p.id) + (mayor ? '<span class="mayor-mark" aria-label="Bürgermeister">🎖️</span>' : '') + esc(p.name) +
         '</span>' + shift + '</span></div>';
     }).join('') + nobodyVoteCard(tally['0']) + (box.claim ? claimVoteCard(tally['-1']) : ''));
     return phaseHead(SUN, 'Tag ' + state.day, '') +
@@ -1161,16 +1189,8 @@
       return hero('🦝', 'Diebstahl') + '<div class="banner love">' + esc(text) + '</div><button type="button" class="btn" data-act="ack">Weiter</button>';
     }
     if (prompt.kind === 'love') {
-      var partners = W.loverComponent(state, person.id).filter(function (id) {
-        var other = player(id);
-        return id !== person.id && other && other.alive;
-      });
-      var lines = partners.map(function (id) {
-        var other = player(id);
-        return '<p><strong>' + esc(other.name) + '</strong> ist ' + esc(W.roleName(other.role)) + '.</p>';
-      }).join('');
-      return hero('💞', 'Liebe') + '<div class="banner love">Du bist verliebt. Stirbt eine Person aus dieser Gruppe, sterben alle verbundenen Personen mit.</div>' +
-        '<div class="card stack">' + lines + '</div><button type="button" class="btn" data-act="ack">Verdecken</button>';
+      return '<section class="stage card">' + loveReveal(person) +
+        '<button type="button" class="btn" data-act="ack">Verdecken</button></section>';
     }
     if (prompt.kind === 'info' && prompt.victimReveal) return victimRevealBlock(prompt);
     if (prompt.kind === 'info') {

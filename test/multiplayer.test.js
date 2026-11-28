@@ -564,6 +564,77 @@ async function main() {
   assert.deepStrictEqual(wolfLeak(N.publicState(tallyBox.state, {})), []);
   assert.ok(tallyGuestRenders.n > before);
 
+  function loverLeak(value) {
+    const found = [];
+    function walk(node, here) {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) {
+        node.forEach(function (item, index) { walk(item, here + '[' + index + ']'); });
+        return;
+      }
+      Object.keys(node).forEach(function (key) {
+        const next = here + '.' + key;
+        if (key === 'loveMark' || key === 'bond' || key === 'bonds') found.push(next);
+        if (key === 'amorPair' && node.amorPair) found.push(next);
+        if (key === 'loverIds' && node.loverIds && node.loverIds.length) found.push(next);
+        else walk(node[key], next);
+      });
+    }
+    walk(value, '$');
+    return found;
+  }
+  const loveGame = W.createGame(['Ida', 'Jens', 'Kai', 'Lea'], countsFor(1, 3), { quickAmor: true, rng: function () { return 0; } });
+  const loveWolf = loveGame.players.filter(function (p) { return p.role === 'werwolf'; })[0];
+  const loveVillage = loveGame.players.filter(function (p) { return p.role !== 'werwolf'; })[0];
+  const loveOther = loveGame.players.filter(function (p) { return p.id !== loveWolf.id && p.id !== loveVillage.id; })[0];
+  W.addLink(loveGame, loveWolf.id, loveVillage.id);
+  const mixed = W.loveBrief(loveGame, loveVillage.id);
+  assert.strictEqual(mixed.lines[0], 'Ihr gewinnt nur gemeinsam. Stirbt einer, stirbt der andere mit.');
+  assert.strictEqual(mixed.lines[1], W.WIN_TEXT.liebespaar);
+  const loveBox = { state: loveGame };
+  const loveHub = N.createHub();
+  const loveHostMp = loveHub.device('Host');
+  const loveLoverMp = loveHub.device('Verliebt');
+  const loveDorfMp = loveHub.device('Andere');
+  const loveDirect = [];
+  const loveCast = [];
+  const loveSend = loveHostMp.send;
+  const loveBroadcast = loveHostMp.broadcast;
+  loveHostMp.send = function (data, opts) {
+    loveDirect.push({ to: opts && opts.to, data: JSON.parse(JSON.stringify(data)) });
+    return loveSend.apply(loveHostMp, arguments);
+  };
+  loveHostMp.broadcast = function (data) {
+    loveCast.push(JSON.parse(JSON.stringify(data)));
+    return loveBroadcast.apply(loveHostMp, arguments);
+  };
+  const loveHost = N.createSession(loveHostMp, boxHooks(loveBox));
+  const loveLoverBox = { state: null };
+  const loveDorfBox = { state: null };
+  const loveLover = N.createSession(loveLoverMp, boxHooks(loveLoverBox));
+  const loveDorf = N.createSession(loveDorfMp, boxHooks(loveDorfBox));
+  await loveHost.host();
+  await loveLover.joinQr(loveHost.roomInfo().qrPayload, 'Verliebt');
+  await loveDorf.joinQr(loveHost.roomInfo().qrPayload, 'Andere');
+  loveLover.local({ type: 'reveal-pick', id: loveVillage.id });
+  loveLover.local({ type: 'reveal-see' });
+  assert.strictEqual(loveLoverBox.state.step, 'love');
+  assert.ok(loveLoverBox.state.players.some(function (p) { return p.id === loveWolf.id && p.role === 'werwolf'; }));
+  loveDorf.local({ type: 'reveal-pick', id: loveOther.id });
+  loveDorf.local({ type: 'reveal-see' });
+  assert.notStrictEqual(loveDorfBox.state.step, 'love');
+  loveCast.forEach(function (message) { assert.deepStrictEqual(loverLeak(message), []); });
+  loveDirect.forEach(function (message) {
+    if (message.to !== loveDorf.selfId()) return;
+    assert.notStrictEqual(message.data.t, 'bond');
+    assert.deepStrictEqual(loverLeak(message.data), []);
+  });
+  assert.ok(loveDirect.some(function (message) {
+    return message.to === loveLover.selfId() && message.data.t === 'bond' &&
+      message.data.bond.partners.some(function (person) { return person.name === loveWolf.name; });
+  }));
+  assert.deepStrictEqual(loverLeak(N.publicState(loveBox.state, {})), []);
+
   console.log('multiplayer ok');
 }
 

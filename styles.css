@@ -62,6 +62,9 @@ header.phase h1 { display: flex; align-items: center; gap: 10px; }
 .mayor-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .mayor-vote { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-size: 18px; }
 .banner.love { background: #2A1822; color: #FBCFE8; }
+.love-mark { font-size: 72px; text-align: center; margin: 0; }
+.love-huge { font-size: 34px; line-height: 1.15; font-weight: 800; text-align: center; margin: 8px 0; }
+.love-heart { margin-right: 4px; }
 .banner.win { background: transparent; color: var(--accent); font-size: 28px; font-weight: 750; padding: 4px 0; box-shadow: none; }
 .row { display: flex; gap: 8px; }
 .row > * { flex: 1; }

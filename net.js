@@ -249,6 +249,7 @@
     if (copy.screen !== 'lobby') copy.error = '';
     delete copy.wolfVotes;
     delete copy.wolfPack;
+    delete copy.loveMark;
     return copy;
   }
 
@@ -292,6 +293,13 @@
     copy.error = preview.error || '';
     delete copy.wolfVotes;
     delete copy.wolfPack;
+    delete copy.loveMark;
+    delete copy.bonds;
+    if (copy.seenLove) {
+      var ownLove = {};
+      if (copy.seenLove[seatId]) ownLove[seatId] = copy.seenLove[seatId];
+      copy.seenLove = ownLove;
+    }
     if (copy.screen === 'announce' && copy.announce && copy.announce.title === 'Abstimmung') {
       copy.lastTally = clone(preview.lastTally || {});
     }
@@ -377,6 +385,9 @@
     var pubSeq = 0;
     var seenSeq = 0;
     var lastSnap = null;
+    var seatDevice = {};
+    var hostBond = null;
+    var localBond = null;
 
     function actionBrief(action) {
       action = action || {};
@@ -565,6 +576,33 @@
         priv.seq = pubSeq;
         sendTo(deviceId, { t: 'priv', seq: pubSeq, state: priv });
       });
+      pushBonds();
+    }
+
+    function bondOf(seatId) {
+      var brief = root.Werwolf && root.Werwolf.loveBrief && root.Werwolf.loveBrief(auth(), seatId);
+      if (!brief) return null;
+      return {
+        selfId: Number(seatId),
+        partners: brief.partners.map(function (person) { return { id: person.id, name: person.name }; })
+      };
+    }
+
+    function pushBonds() {
+      if (role !== 'host') return;
+      hostBond = null;
+      var game = auth();
+      (game && game.players || []).forEach(function (person) {
+        var deviceId = seatDevice[person.id];
+        if (!deviceId) return;
+        var bond = bondOf(person.id);
+        if (!bond) return;
+        if (deviceId === selfId) {
+          hostBond = bond;
+          return;
+        }
+        sendTo(deviceId, { t: 'bond', seq: pubSeq, bond: bond });
+      });
     }
 
     function clearDevice(deviceId) {
@@ -597,6 +635,7 @@
       if (deviceSeat[deviceId] != null && Number(deviceSeat[deviceId]) !== seatId) clearDevice(deviceId);
       locks[seatId] = deviceId;
       deviceSeat[deviceId] = seatId;
+      seatDevice[seatId] = deviceId;
       holds[seatId] = { deviceId: deviceId, actions: [] };
       done();
       return { ok: true };
@@ -751,9 +790,14 @@
         if (data.state) delete data.state.library;
         var pubScreen = data.state && data.state.screen;
         var turnOver = holding && pubScreen && pubScreen !== 'night' && pubScreen !== 'vote' && pubScreen !== 'reveal' && pubScreen !== 'hunter' && pubScreen !== 'duel';
+        var view = data.state;
+        if (localBond && view) {
+          view = clone(view);
+          view.loveMark = localBond;
+        }
         if (!holding || turnOver) {
           holding = false;
-          hooks.setState(data.state);
+          hooks.setState(view);
         }
         ping();
         return;
@@ -775,13 +819,36 @@
         ping();
         return;
       }
+      if (data.t === 'bond') {
+        if (!newer(data.seq)) return;
+        localBond = data.bond || null;
+        var marked = hooks.getState();
+        if (marked) {
+          marked.loveMark = localBond;
+          hooks.setState(marked);
+        }
+        ping();
+        return;
+      }
       if (data.t === 'clear') {
         if (!newer(data.seq || (data.state && data.state.seq))) return;
         holding = false;
         if (data.state) {
           lastPub = data.state;
-          hooks.setState(data.state);
-        } else if (lastPub) hooks.setState(lastPub);
+          var cleared = data.state;
+          if (localBond) {
+            cleared = clone(data.state);
+            cleared.loveMark = localBond;
+          }
+          hooks.setState(cleared);
+        } else if (lastPub) {
+          var restored = lastPub;
+          if (localBond) {
+            restored = clone(lastPub);
+            restored.loveMark = localBond;
+          }
+          hooks.setState(restored);
+        }
         ping();
         return;
       }
@@ -989,7 +1056,8 @@
       selfId: function () { return selfId; },
       hostAway: function () { return away ? (awayText || 'Host ist kurz weg') : ''; },
       qrButtons: function () { return qrButtons(mp); },
-      flush: function () { if (role === 'host') done(); }
+      flush: function () { if (role === 'host') done(); },
+      bond: function () { return role === 'host' ? hostBond : localBond; }
     };
   }
 
@@ -1247,6 +1315,7 @@
     online: function () { return !!(live && live.online()); },
     role: function () { return live ? live.role() : 'off'; },
     display: function () { return live ? live.display() : null; },
+    bond: function () { return live && live.bond ? live.bond() : null; },
     local: function (action) { if (live) live.local(action); },
     guestActions: function () { return live && live.guestActions ? live.guestActions() : []; },
     requestReport: function (description) {

@@ -750,6 +750,27 @@
     });
   }
 
+  function loveBrief(state, id) {
+    var me = playerById(state, id);
+    if (!me || !(me.loverIds || []).length) return null;
+    var partners = loverComponent(state, id).filter(function (other) {
+      var person = playerById(state, other);
+      return other !== Number(id) && person && person.alive;
+    }).map(function (other) { return playerById(state, other); });
+    if (!partners.length) return null;
+    var mixed = partners.some(function (person) {
+      return teamOfRole(person.role) !== teamOfRole(me.role);
+    });
+    var lines = ['Ihr gewinnt nur gemeinsam. Stirbt einer, stirbt der andere mit.'];
+    if (mixed) lines.push(WIN_TEXT.liebespaar);
+    return {
+      partners: partners.map(function (person) {
+        return { id: person.id, name: person.name, role: person.role || '' };
+      }),
+      lines: lines
+    };
+  }
+
   function loveSignature(state, id) {
     var mine = playerById(state, id);
     if (!mine || !(mine.loverIds || []).length) return '';
@@ -2660,6 +2681,11 @@
       markPeeked(state, looking.id);
       state.selection = [];
       state.error = '';
+      var loveSig = loveSignature(state, looking.id);
+      if (loveSig && (!state.seenLove || state.seenLove[looking.id] !== loveSig)) {
+        state.step = 'love';
+        return;
+      }
       state.step = state.quickAmor !== false && looking.role === 'amor' && !looking.amorLinked ? 'link' : 'show';
       note(state, 'Rolle zeigen ' + looking.name);
       return;
@@ -2693,8 +2719,6 @@
       state.error = '';
       note(state, 'Amor verbindet ' + pair[0] + ' ' + pair[1]);
       if (pair.indexOf(amor.id) >= 0) {
-        if (!state.seenLove) state.seenLove = {};
-        state.seenLove[amor.id] = loveSignature(state, amor.id);
         state.step = 'love';
         return;
       }
@@ -2703,6 +2727,10 @@
     }
     if (state.step === 'love' && (action.type === 'ack' || action.type === 'back')) {
       var lover = playerById(state, state.activeId);
+      if (action.type === 'ack' && lover) {
+        if (!state.seenLove) state.seenLove = {};
+        state.seenLove[lover.id] = loveSignature(state, lover.id);
+      }
       if (lover) finishReveal(state, lover);
       return;
     }
@@ -3319,6 +3347,7 @@
     currentConfig: currentConfig,
     adoptSaved: adoptSaved,
     loveSignature: loveSignature,
+    loveBrief: loveBrief,
     ownerHome: ownerHome
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
