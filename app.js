@@ -250,6 +250,18 @@
     if (!state || state.screen !== 'end' || state.historySaved || !Array.isArray(state.book)) return;
     history = S.appendGame(history, S.buildRecord(state, Date.now()));
     state.historySaved = true;
+    syncHostStats();
+  }
+
+  /* Schreibt die ausgewerteten Zahlen in die Host-Liste. werwolf.history.v1 bleibt unverändert. */
+  function syncHostStats() {
+    var api = bridgePlayers();
+    if (!api || typeof api.setStats !== 'function' || isGuest()) return Promise.resolve();
+    var records = S.hostRecords(history);
+    if (!records.length) return Promise.resolve();
+    return withTimeout(api.setStats({ records: records }), STORAGE_TIMEOUT_MS).then(function () {}, function (error) {
+      console.error('[werwolf] players.setStats fehlgeschlagen', error && error.message ? error.message : error);
+    });
   }
 
   function loadRoster(raw) {
@@ -2618,6 +2630,7 @@ if (duel.stage === 'pull-handoff' || duel.stage === 'pull-ready') {
     saveReady = true;
     applyScores();
     persist();
+    syncHostStats();
     if (window.WerwolfNet && window.WerwolfNet.hold) window.WerwolfNet.hold(false);
     render();
   }

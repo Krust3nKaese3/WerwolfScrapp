@@ -191,6 +191,53 @@
     };
   }
 
+  function roleCounts(role) {
+    return { games: role.got || 0, wins: role.won || 0, deaths: role.deaths || 0 };
+  }
+
+  function addCounts(left, right) {
+    return {
+      games: left.games + right.games,
+      wins: left.wins + right.wins,
+      deaths: left.deaths + right.deaths
+    };
+  }
+
+  function emptyCounts() {
+    return { games: 0, wins: 0, deaths: 0 };
+  }
+
+  /* Host-Statistik erwartet Spiele/Siege/Tode und Rollen werwolf/dorfbewohner als Team-Summen. */
+  function hostRecord(history, pid) {
+    var stats = playerStats(history, pid);
+    var roles = {};
+    var wolf = emptyCounts();
+    var village = emptyCounts();
+    Object.keys(stats.roles || {}).forEach(function (role) {
+      var counts = roleCounts(stats.roles[role]);
+      roles[role] = counts;
+      var team = teamOf(role);
+      if (team === 'wolf') wolf = addCounts(wolf, counts);
+      else if (team === 'village') village = addCounts(village, counts);
+    });
+    roles.werwolf = wolf;
+    roles.dorfbewohner = village;
+    return {
+      id: String(pid),
+      games: stats.games,
+      wins: stats.wins,
+      deaths: stats.deaths,
+      roles: roles
+    };
+  }
+
+  function hostRecords(history) {
+    var all = combine(history);
+    return Object.keys(all).filter(function (pid) {
+      return pid && pid !== '0' && all[pid] && all[pid].g > 0;
+    }).map(function (pid) { return hostRecord(history, pid); });
+  }
+
   function bySeat(state) {
     var map = {};
     (state.players || []).forEach(function (player) { map[player.id] = player; });
@@ -337,6 +384,8 @@
     compactHistory: compactHistory,
     appendGame: appendGame,
     playerStats: playerStats,
+    hostRecord: hostRecord,
+    hostRecords: hostRecords,
     buildRecord: buildRecord,
     teamOf: teamOf
   };
