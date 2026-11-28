@@ -247,6 +247,9 @@
     copy.finishedIds = done;
     copy.pendingNamesPublic = pending;
     if (copy.screen !== 'lobby') copy.error = '';
+    delete copy.wolfVotes;
+    delete copy.wolfPack;
+    delete copy.loveMark;
     return copy;
   }
 
@@ -288,6 +291,18 @@
     }
     copy.remoteHold = true;
     copy.error = preview.error || '';
+    delete copy.wolfVotes;
+    delete copy.wolfPack;
+    delete copy.loveMark;
+    delete copy.bonds;
+    if (copy.seenLove) {
+      var ownLove = {};
+      if (copy.seenLove[seatId]) ownLove[seatId] = copy.seenLove[seatId];
+      copy.seenLove = ownLove;
+    }
+    if (copy.screen === 'announce' && copy.announce && copy.announce.title === 'Abstimmung') {
+      copy.lastTally = clone(preview.lastTally || {});
+    }
     return copy;
   }
 
@@ -364,6 +379,15 @@
     var qrPayload = '';
     var actionLog = [];
     var reportWait = null;
+    var hostPack = { votes: [], picks: [] };
+    var packTimer = null;
+    var PACK_MS = 150;
+    var pubSeq = 0;
+    var seenSeq = 0;
+    var lastSnap = null;
+    var seatDevice = {};
+    var hostBond = null;
+    var localBond = null;
 
     function actionBrief(action) {
       action = action || {};
@@ -390,11 +414,11 @@
     function applied() {
       if (hooks.after) hooks.after();
       publish();
-      ping();
+      flushPack();
     }
 
-    function done() {
-      publish();
+    function done(opts) {
+      publish(opts);
       ping();
     }
 
@@ -417,16 +441,167 @@
       return base;
     }
 
-    function publish() {
+    function wolfChoosing(preview) {
+      if (!preview || preview.step !== 'show' || preview.selfTell) return false;
+      var prompt = preview.prompts && preview.prompts[preview.promptIndex || 0];
+      if (!prompt || prompt.kind !== 'wolf') return false;
+      var actor = playerOf(preview, preview.activeId);
+      return !!(actor && actor.role === 'werwolf');
+    }
+
+    function collectPack() {
+      var game = auth() || {};
+      var votes = {};
+      var picks = {};
+      Object.keys(game.wolfVotes || {}).forEach(function (id) {
+        var target = Number(game.wolfVotes[id]);
+        if (target) votes[Number(id)] = target;
+      });
+      Object.keys(holds).forEach(function (key) {
+        var seatId = Number(key);
+        var preview = previewOf(seatId);
+        if (!wolfChoosing(preview)) return;
+        if (preview.wolfVotes && preview.wolfVotes[seatId] != null) votes[seatId] = Number(preview.wolfVotes[seatId]);
+        var sel = preview.selection && preview.selection.length === 1 ? Number(preview.selection[0]) : 0;
+        if (sel && votes[seatId] == null) picks[seatId] = sel;
+      });
+      return { votes: votes, picks: picks };
+    }
+
+    function packRows(raw, seatId) {
+      var game = auth() || {};
+      function rows(map) {
+        return Object.keys(map || {}).filter(function (id) {
+          return Number(id) !== Number(seatId);
+        }).map(function (id) {
+          var wolf = playerOf(game, id);
+          return wolf && wolf.name ? { name: wolf.name, targetId: Number(map[id]) } : null;
+        }).filter(function (row) { return row && row.targetId; });
+      }
+      return { votes: rows(raw.votes), picks: rows(raw.picks) };
+    }
+
+    function attachPack(copy, seatId, raw) {
+      delete copy.wolfVotes;
+      delete copy.wolfPack;
+      if (!wolfChoosing(copy)) return;
+      copy.wolfPack = packRows(raw, seatId);
+    }
+
+    function rememberHost(raw) {
+      var seat = deviceSeat[selfId];
+      if (seat == null) {
+        hostPack = { votes: [], picks: [] };
+        return;
+      }
+      var preview = previewOf(seat);
+      if (!wolfChoosing(preview)) {
+        hostPack = { votes: [], picks: [] };
+        return;
+      }
+      hostPack = packRows(raw, seat);
+    }
+
+    function deliverPack() {
       if (role !== 'host') return;
-      stampGrid(auth());
-      var pub = publicState(auth(), locks);
-      broadcast({ t: 'pub', state: pub });
+      var raw = collectPack();
+      rememberHost(raw);
       Object.keys(holds).forEach(function (key) {
         var seatId = Number(key);
         var deviceId = holds[key].deviceId;
+        if (!deviceId || deviceId === selfId) return;
+        var preview = previewOf(seatId);
+        if (!wolfChoosing(preview)) return;
+        sendTo(deviceId, { t: 'pack', pack: packRows(raw, seatId) });
+      });
+    }
+
+    function flushPack() {
+      if (packTimer) {
+        clearTimeout(packTimer);
+        packTimer = null;
+      }
+      deliverPack();
+      ping();
+    }
+
+    function schedulePack() {
+      if (packTimer) return;
+      packTimer = setTimeout(function () {
+        packTimer = null;
+        deliverPack();
+        ping();
+      }, PACK_MS);
+    }
+
+    function takePub() {
+      stampGrid(auth());
+      pubSeq += 1;
+      var pub = publicState(auth(), locks);
+      pub.seq = pubSeq;
+      lastSnap = { t: 'pub', seq: pubSeq, state: pub };
+      return lastSnap;
+    }
+
+    function pushPub(snap) {
+      broadcast(snap);
+      players.forEach(function (person) {
+        if (!person || !person.connected || person.id === selfId) return;
+        sendTo(person.id, snap);
+      });
+    }
+
+    function replySync(deviceId) {
+      if (role !== 'host' || !deviceId || deviceId === selfId) return;
+      if (!lastSnap) {
+        publish();
+        return;
+      }
+      sendTo(deviceId, lastSnap);
+    }
+
+    function publish(opts) {
+      if (role !== 'host') return;
+      opts = opts || {};
+      var snap = takePub();
+      pushPub(snap);
+      var raw = collectPack();
+      Object.keys(holds).forEach(function (key) {
+        var seatId = Number(key);
+        if (opts.onlySeat != null && seatId !== Number(opts.onlySeat)) return;
+        var deviceId = holds[key].deviceId;
         if (deviceId === selfId) return;
-        sendTo(deviceId, { t: 'priv', state: privateState(previewOf(seatId), seatId) });
+        var priv = privateState(previewOf(seatId), seatId);
+        attachPack(priv, seatId, raw);
+        priv.seq = pubSeq;
+        sendTo(deviceId, { t: 'priv', seq: pubSeq, state: priv });
+      });
+      pushBonds();
+    }
+
+    function bondOf(seatId) {
+      var brief = root.Werwolf && root.Werwolf.loveBrief && root.Werwolf.loveBrief(auth(), seatId);
+      if (!brief) return null;
+      return {
+        selfId: Number(seatId),
+        partners: brief.partners.map(function (person) { return { id: person.id, name: person.name }; })
+      };
+    }
+
+    function pushBonds() {
+      if (role !== 'host') return;
+      hostBond = null;
+      var game = auth();
+      (game && game.players || []).forEach(function (person) {
+        var deviceId = seatDevice[person.id];
+        if (!deviceId) return;
+        var bond = bondOf(person.id);
+        if (!bond) return;
+        if (deviceId === selfId) {
+          hostBond = bond;
+          return;
+        }
+        sendTo(deviceId, { t: 'bond', seq: pubSeq, bond: bond });
       });
     }
 
@@ -436,7 +611,8 @@
       delete holds[seat];
       delete locks[seat];
       delete deviceSeat[deviceId];
-      sendTo(deviceId, { t: 'clear' });
+      var snap = takePub();
+      sendTo(deviceId, { t: 'clear', seq: snap.seq, state: snap.state });
     }
 
     function releaseDevice(deviceId) {
@@ -459,6 +635,7 @@
       if (deviceSeat[deviceId] != null && Number(deviceSeat[deviceId]) !== seatId) clearDevice(deviceId);
       locks[seatId] = deviceId;
       deviceSeat[deviceId] = seatId;
+      seatDevice[seatId] = deviceId;
       holds[seatId] = { deviceId: deviceId, actions: [] };
       done();
       return { ok: true };
@@ -476,7 +653,8 @@
       delete holds[seatId];
       delete locks[seatId];
       delete deviceSeat[deviceId];
-      sendTo(deviceId, { t: 'clear' });
+      var snap = takePub();
+      sendTo(deviceId, { t: 'clear', seq: snap.seq, state: snap.state });
     }
 
     function pushTurn(deviceId, action) {
@@ -488,6 +666,7 @@
       if (action.type === 'cancel' && preview.screen !== 'duel') backToList = true;
       if (backToList) {
         clearDevice(deviceId);
+        flushPack();
         done();
         return;
       }
@@ -496,7 +675,14 @@
         applied();
         return;
       }
-      done();
+      var livePick = action.type === 'select' && wolfChoosing(preview) && preview.selection && preview.selection.length === 1;
+      if (livePick) {
+        done({ onlySeat: seatId });
+        schedulePack();
+        return;
+      }
+      done({ onlySeat: seatId });
+      flushPack();
     }
 
     function onLocal(deviceId, action) {
@@ -574,7 +760,7 @@
           releaseDevice(message.from);
           done();
         } else if (data.t === 'phase') onLocal(message.from, data.action || {});
-        else if (data.t === 'hello') done();
+        else if (data.t === 'hello' || data.t === 'sync') replySync(message.from);
         else if (data.t === 'bug') {
           var text = root.Werwolf && root.Werwolf.report
             ? root.Werwolf.report(auth(), data.description || '', actionLog.slice())
@@ -590,24 +776,79 @@
         doneWait(String(data.text || ''));
         return;
       }
+      function newer(seq) {
+        var n = Number(seq) || 0;
+        if (n && n < seenSeq) return false;
+        if (n) seenSeq = n;
+        return true;
+      }
       if (data.t === 'pub') {
+        if (!newer(data.seq || (data.state && data.state.seq))) return;
         lastPub = data.state;
         away = false;
         if (data.state && data.state.library && hooks.takeLibrary) hooks.takeLibrary(data.state.library);
         if (data.state) delete data.state.library;
-        if (!holding) hooks.setState(data.state);
+        var pubScreen = data.state && data.state.screen;
+        var turnOver = holding && pubScreen && pubScreen !== 'night' && pubScreen !== 'vote' && pubScreen !== 'reveal' && pubScreen !== 'hunter' && pubScreen !== 'duel';
+        var view = data.state;
+        if (localBond && view) {
+          view = clone(view);
+          view.loveMark = localBond;
+        }
+        if (!holding || turnOver) {
+          holding = false;
+          hooks.setState(view);
+        }
         ping();
         return;
       }
       if (data.t === 'priv') {
+        if (!newer(data.seq || (data.state && data.state.seq))) return;
         holding = true;
         hooks.setState(data.state);
         ping();
         return;
       }
+      if (data.t === 'pack') {
+        if (!holding) return;
+        var current = hooks.getState();
+        var prompt = current && current.prompts && current.prompts[current.promptIndex || 0];
+        if (!current || current.step !== 'show' || !prompt || prompt.kind !== 'wolf') return;
+        current.wolfPack = data.pack || { votes: [], picks: [] };
+        hooks.setState(current);
+        ping();
+        return;
+      }
+      if (data.t === 'bond') {
+        if (!newer(data.seq)) return;
+        localBond = data.bond || null;
+        var marked = hooks.getState();
+        if (marked) {
+          marked.loveMark = localBond;
+          hooks.setState(marked);
+        }
+        ping();
+        return;
+      }
       if (data.t === 'clear') {
+        if (!newer(data.seq || (data.state && data.state.seq))) return;
         holding = false;
-        if (lastPub) hooks.setState(lastPub);
+        if (data.state) {
+          lastPub = data.state;
+          var cleared = data.state;
+          if (localBond) {
+            cleared = clone(data.state);
+            cleared.loveMark = localBond;
+          }
+          hooks.setState(cleared);
+        } else if (lastPub) {
+          var restored = lastPub;
+          if (localBond) {
+            restored = clone(lastPub);
+            restored.loveMark = localBond;
+          }
+          hooks.setState(restored);
+        }
         ping();
         return;
       }
@@ -665,7 +906,7 @@
         done();
         return;
       }
-      if (info.status === 'ready') mp.send({ t: 'hello' });
+      if (info.status === 'ready') mp.send({ t: 'sync' });
       ping();
     }
 
@@ -751,6 +992,10 @@
         var was = role;
         role = 'off';
         holding = false;
+        if (packTimer) {
+          clearTimeout(packTimer);
+          packTimer = null;
+        }
         locks = {};
         holds = {};
         deviceSeat = {};
@@ -781,7 +1026,9 @@
         if (role !== 'host') return null;
         var seat = deviceSeat[selfId];
         if (seat == null || !holds[seat]) return null;
-        return previewOf(seat);
+        var view = previewOf(seat);
+        if (wolfChoosing(view)) view.wolfPack = clone(hostPack);
+        return view;
       },
       role: function () { return role; },
       online: function () { return role === 'host' || role === 'guest'; },
@@ -809,7 +1056,8 @@
       selfId: function () { return selfId; },
       hostAway: function () { return away ? (awayText || 'Host ist kurz weg') : ''; },
       qrButtons: function () { return qrButtons(mp); },
-      flush: function () { if (role === 'host') done(); }
+      flush: function () { if (role === 'host') done(); },
+      bond: function () { return role === 'host' ? hostBond : localBond; }
     };
   }
 
@@ -1067,6 +1315,7 @@
     online: function () { return !!(live && live.online()); },
     role: function () { return live ? live.role() : 'off'; },
     display: function () { return live ? live.display() : null; },
+    bond: function () { return live && live.bond ? live.bond() : null; },
     local: function (action) { if (live) live.local(action); },
     guestActions: function () { return live && live.guestActions ? live.guestActions() : []; },
     requestReport: function (description) {
