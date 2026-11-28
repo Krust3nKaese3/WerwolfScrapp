@@ -254,4 +254,43 @@ test('Alte Spiele werden zu Summen, die Statistik bleibt gleich', function () {
   assert.ok(sample * S.LIMITS.maxGames < S.LIMITS.safeBytes);
 });
 
+
+test('Host-Datensatz fasst Dorf-Rollen zusammen und lässt das Protokoll unangetastet', function () {
+  const history = {
+    v: 1,
+    games: [{
+      t: 1,
+      m: 0,
+      w: 'dorf',
+      wp: ['p2', 'p3'],
+      pl: [
+        ['p1', 'werwolf', 'werwolf'],
+        ['p2', 'hexe', 'hexe'],
+        ['p3', 'dorfbewohner', 'dorfbewohner']
+      ],
+      ev: [
+        ['d', 2, 'p1', 'vote', 'werwolf']
+      ]
+    }],
+    sum: {}
+  };
+  const copy = JSON.stringify(history);
+  const records = S.hostRecords(history);
+  assert.strictEqual(JSON.stringify(history), copy);
+  const byId = {};
+  records.forEach(function (row) { byId[row.id] = row; });
+  assert.strictEqual(byId.p1.games, 1);
+  assert.strictEqual(byId.p1.wins, 0);
+  assert.strictEqual(byId.p1.deaths, 1);
+  assert.strictEqual(byId.p1.roles.werwolf.games, 1);
+  assert.strictEqual(byId.p1.roles.dorfbewohner.games, 0);
+  assert.strictEqual(byId.p2.games, 1);
+  assert.strictEqual(byId.p2.wins, 1);
+  assert.strictEqual(byId.p2.roles.hexe.games, 1);
+  assert.strictEqual(byId.p2.roles.dorfbewohner.games, 1);
+  assert.strictEqual(byId.p2.roles.dorfbewohner.wins, 1);
+  assert.strictEqual(byId.p3.roles.dorfbewohner.games, 1);
+  assert.strictEqual(S.hostRecords({ v: 1, games: [], sum: {} }).length, 0);
+});
+
 console.log(passed + ' stats tests ok');
