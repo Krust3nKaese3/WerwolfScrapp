@@ -520,6 +520,50 @@ async function main() {
   assert.ok(css.indexOf('.pack-badge') >= 0);
   assert.ok(css.indexOf('.pack-badge.live') >= 0);
 
+  const tallyRenders = { n: 0 };
+  const tallyBox = { state: W.createGame(['Otto', 'Pia', 'Quin'], countsFor(1, 2), { quickAmor: true, rng: function () { return 0; } }) };
+  tallyBox.state.screen = 'announce';
+  tallyBox.state.announce = { title: 'Abstimmung', lines: ['Pia: 2,0'], button: 'Weiter', then: 'night' };
+  tallyBox.state.lastTally = { '2': 4, '0': 2 };
+  tallyBox.state.votes = { 1: 2, 3: 2 };
+  const tallyHub = N.createHub();
+  const tallyHostMp = tallyHub.device('Host');
+  const tallyGuestMp = tallyHub.device('Gast');
+  let tallyGuestHandler = null;
+  const tallyOnMessage = tallyGuestMp.onMessage;
+  tallyGuestMp.onMessage = function (cb) {
+    tallyGuestHandler = cb;
+    return tallyOnMessage.call(tallyGuestMp, cb);
+  };
+  const tallyHooks = boxHooks(tallyBox);
+  tallyHooks.changed = function () { tallyRenders.n += 1; };
+  const tallyGuestBox = { state: null };
+  const tallyGuestHooks = boxHooks(tallyGuestBox);
+  const tallyGuestRenders = { n: 0 };
+  tallyGuestHooks.changed = function () { tallyGuestRenders.n += 1; };
+  const tallyHost = N.createSession(tallyHostMp, tallyHooks);
+  const tallyGuest = N.createSession(tallyGuestMp, tallyGuestHooks);
+  await tallyHost.host();
+  await tallyGuest.joinQr(tallyHost.roomInfo().qrPayload, 'Gast');
+  const before = tallyGuestRenders.n;
+  tallyBox.state.lastTally = { '2': 6, '0': 2 };
+  tallyHost.flush();
+  assert.deepStrictEqual(tallyGuestBox.state.lastTally, { '2': 6, '0': 2 });
+  assert.ok(tallyGuestRenders.n > before);
+  assert.ok(tallyGuestBox.state.seq > 0);
+  const staleSeq = tallyGuestBox.state.seq;
+  tallyGuestHandler({
+    from: tallyHost.selfId(),
+    data: { t: 'pub', seq: staleSeq - 1, state: { v: 1, screen: 'announce', remote: true, seq: staleSeq - 1, announce: { title: 'Abstimmung' }, lastTally: {}, players: [] } }
+  });
+  assert.deepStrictEqual(tallyGuestBox.state.lastTally, { '2': 6, '0': 2 });
+  tallyGuestMp._disconnect();
+  await tallyGuestMp.resume();
+  await tallyGuest.resume();
+  assert.deepStrictEqual(tallyGuestBox.state.lastTally, { '2': 6, '0': 2 });
+  assert.deepStrictEqual(wolfLeak(N.publicState(tallyBox.state, {})), []);
+  assert.ok(tallyGuestRenders.n > before);
+
   console.log('multiplayer ok');
 }
 

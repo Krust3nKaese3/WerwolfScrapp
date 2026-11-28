@@ -292,6 +292,9 @@
     copy.error = preview.error || '';
     delete copy.wolfVotes;
     delete copy.wolfPack;
+    if (copy.screen === 'announce' && copy.announce && copy.announce.title === 'Abstimmung') {
+      copy.lastTally = clone(preview.lastTally || {});
+    }
     return copy;
   }
 
@@ -371,6 +374,9 @@
     var hostPack = { votes: [], picks: [] };
     var packTimer = null;
     var PACK_MS = 150;
+    var pubSeq = 0;
+    var seenSeq = 0;
+    var lastSnap = null;
 
     function actionBrief(action) {
       action = action || {};
@@ -517,12 +523,37 @@
       }, PACK_MS);
     }
 
+    function takePub() {
+      stampGrid(auth());
+      pubSeq += 1;
+      var pub = publicState(auth(), locks);
+      pub.seq = pubSeq;
+      lastSnap = { t: 'pub', seq: pubSeq, state: pub };
+      return lastSnap;
+    }
+
+    function pushPub(snap) {
+      broadcast(snap);
+      players.forEach(function (person) {
+        if (!person || !person.connected || person.id === selfId) return;
+        sendTo(person.id, snap);
+      });
+    }
+
+    function replySync(deviceId) {
+      if (role !== 'host' || !deviceId || deviceId === selfId) return;
+      if (!lastSnap) {
+        publish();
+        return;
+      }
+      sendTo(deviceId, lastSnap);
+    }
+
     function publish(opts) {
       if (role !== 'host') return;
       opts = opts || {};
-      stampGrid(auth());
-      var pub = publicState(auth(), locks);
-      broadcast({ t: 'pub', state: pub });
+      var snap = takePub();
+      pushPub(snap);
       var raw = collectPack();
       Object.keys(holds).forEach(function (key) {
         var seatId = Number(key);
@@ -531,7 +562,8 @@
         if (deviceId === selfId) return;
         var priv = privateState(previewOf(seatId), seatId);
         attachPack(priv, seatId, raw);
-        sendTo(deviceId, { t: 'priv', state: priv });
+        priv.seq = pubSeq;
+        sendTo(deviceId, { t: 'priv', seq: pubSeq, state: priv });
       });
     }
 
@@ -541,7 +573,8 @@
       delete holds[seat];
       delete locks[seat];
       delete deviceSeat[deviceId];
-      sendTo(deviceId, { t: 'clear' });
+      var snap = takePub();
+      sendTo(deviceId, { t: 'clear', seq: snap.seq, state: snap.state });
     }
 
     function releaseDevice(deviceId) {
@@ -581,7 +614,8 @@
       delete holds[seatId];
       delete locks[seatId];
       delete deviceSeat[deviceId];
-      sendTo(deviceId, { t: 'clear' });
+      var snap = takePub();
+      sendTo(deviceId, { t: 'clear', seq: snap.seq, state: snap.state });
     }
 
     function pushTurn(deviceId, action) {
@@ -687,7 +721,7 @@
           releaseDevice(message.from);
           done();
         } else if (data.t === 'phase') onLocal(message.from, data.action || {});
-        else if (data.t === 'hello') done();
+        else if (data.t === 'hello' || data.t === 'sync') replySync(message.from);
         else if (data.t === 'bug') {
           var text = root.Werwolf && root.Werwolf.report
             ? root.Werwolf.report(auth(), data.description || '', actionLog.slice())
@@ -703,16 +737,29 @@
         doneWait(String(data.text || ''));
         return;
       }
+      function newer(seq) {
+        var n = Number(seq) || 0;
+        if (n && n < seenSeq) return false;
+        if (n) seenSeq = n;
+        return true;
+      }
       if (data.t === 'pub') {
+        if (!newer(data.seq || (data.state && data.state.seq))) return;
         lastPub = data.state;
         away = false;
         if (data.state && data.state.library && hooks.takeLibrary) hooks.takeLibrary(data.state.library);
         if (data.state) delete data.state.library;
-        if (!holding) hooks.setState(data.state);
+        var pubScreen = data.state && data.state.screen;
+        var turnOver = holding && pubScreen && pubScreen !== 'night' && pubScreen !== 'vote' && pubScreen !== 'reveal' && pubScreen !== 'hunter' && pubScreen !== 'duel';
+        if (!holding || turnOver) {
+          holding = false;
+          hooks.setState(data.state);
+        }
         ping();
         return;
       }
       if (data.t === 'priv') {
+        if (!newer(data.seq || (data.state && data.state.seq))) return;
         holding = true;
         hooks.setState(data.state);
         ping();
@@ -729,8 +776,12 @@
         return;
       }
       if (data.t === 'clear') {
+        if (!newer(data.seq || (data.state && data.state.seq))) return;
         holding = false;
-        if (lastPub) hooks.setState(lastPub);
+        if (data.state) {
+          lastPub = data.state;
+          hooks.setState(data.state);
+        } else if (lastPub) hooks.setState(lastPub);
         ping();
         return;
       }
@@ -788,7 +839,7 @@
         done();
         return;
       }
-      if (info.status === 'ready') mp.send({ t: 'hello' });
+      if (info.status === 'ready') mp.send({ t: 'sync' });
       ping();
     }
 
